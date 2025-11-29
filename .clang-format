@@ -1,0 +1,282 @@
+---
+#Language: Cpp
+# BasedOnStyle: LLVM
+AccessModifierOffset:                           0
+AlignAfterOpenBracket:                          Align
+AlignArrayOfStructures:                         None
+AlignConsecutiveAssignments:
+  Enabled:                                      true
+  AcrossEmptyLines:                             true
+  AcrossComments:                               true
+  AlignCompound:                                true
+  PadOperators:                                 true
+AlignConsecutiveBitFields:
+  Enabled:                                      true
+  AcrossEmptyLines:                             true
+  AcrossComments:                               true
+AlignConsecutiveDeclarations:
+  Enabled:                                      true
+  AcrossEmptyLines:                             false
+  AcrossComments:                               true
+AlignConsecutiveMacros:
+  Enabled:                                      true
+  AcrossEmptyLines:                             true
+  AcrossComments:                               true
+AlignConsecutiveShortCaseStatements:
+  Enabled:                                      true
+  AcrossEmptyLines:                             true
+  AcrossComments:                               true
+  AlignCaseColons:                              true
+AlignEscapedNewlines:                           Left
+AlignOperands:                                  Align
+AlignTrailingComments:                          false #TODO: Kommentare einer } ignorieren true
+AllowAllArgumentsOnNextLine:                    false
+AllowAllParametersOfDeclarationOnNextLine:      false
+AllowShortBlocksOnASingleLine:                  Empty
+AllowShortCaseLabelsOnASingleLine:              true
+AllowShortEnumsOnASingleLine:                   true
+AllowShortFunctionsOnASingleLine:               Empty # TODO: Wenn es wirklich "Allow" wäre: Inline
+AllowShortIfStatementsOnASingleLine:            Never
+AllowShortLambdasOnASingleLine:                 All # TODO: [](){ call(); return; }
+AllowShortLoopsOnASingleLine:                   false
+AlwaysBreakAfterDefinitionReturnType:           None
+AlwaysBreakAfterReturnType:                     None
+AlwaysBreakBeforeMultilineStrings:              false
+AlwaysBreakTemplateDeclarations:                Yes
+AttributeMacros:                                []
+BinPackArguments:                               true
+BinPackParameters:                              true
+BitFieldColonSpacing:                           Both
+BraceWrapping:
+  AfterCaseLabel:                               false
+  AfterClass:                                   false
+  AfterControlStatement:                        Never
+  AfterEnum:                                    false
+  AfterExternBlock:                             false
+  AfterFunction:                                false
+  AfterNamespace:                               false
+  AfterObjCDeclaration:                         false
+  AfterStruct:                                  false
+  AfterUnion:                                   false
+  BeforeCatch:                                  true
+  BeforeElse:                                   true
+  BeforeLambdaBody:                             false
+  BeforeWhile:                                  false
+  IndentBraces:                                 false
+  SplitEmptyFunction:                           true
+  SplitEmptyRecord:                             true
+  SplitEmptyNamespace:                          true
+BreakAfterAttributes:                           Never
+BreakAfterJavaFieldAnnotations:                 false
+BreakArrays:                                    false
+BreakBeforeBinaryOperators:                     None
+BreakBeforeConceptDeclarations:                 Always
+BreakBeforeBraces:                              Custom
+BreakBeforeInlineASMColon:                      OnlyMultiline
+BreakBeforeTernaryOperators:                    false
+BreakConstructorInitializers:                   AfterColon
+BreakInheritanceList:                           AfterColon
+BreakStringLiterals:                            true
+ColumnLimit:                                    120
+CommentPragmas:                                 '^ IWYU pragma:'
+CompactNamespaces:                              false
+ConstructorInitializerIndentWidth:              8
+ContinuationIndentWidth:                        4
+Cpp11BracedListStyle:                           true
+DerivePointerAlignment:                         false
+DisableFormat:                                  false
+EmptyLineAfterAccessModifier:                   Never
+EmptyLineBeforeAccessModifier:                  LogicalBlock
+FixNamespaceComments:                           true
+ForEachMacros:                                  []
+IfMacros:                                       []
+IncludeBlocks:                                  Regroup
+# 1. Der eigene Header kommt automatisch oben (Prio 0)
+# 2. Dann kommen lokale Header (Prio 10)
+# 3. Dann kommen eigene Libraries in <> mit großen Buchstaben am Anfang und normalerweise einem / drin (Prio 20)
+# 4. Dann kommen Interfaces (Prio 30)
+# 4. Dann kommen 3rd Party ohne Qt in <>, leider muessen wir hier die Präfixe alle manuell angeben... (Prio 40)
+# 5. Dann kommen die Qt Header in <> mit einem großen Q, gefolgt von einem weiteren großen Buchstaben, und ohne / (Prio 50)
+# 6. Dann kommen OS-Header, durch den Regex fallen hier auch C-Header rein, aber diese sollen ja eh nicht verwendet werden. :) (Prio 60)
+# 7. Zuletzt kommen die Std-Header (Prio 70)
+# Die Regexe müssen anders sortiert sein, da der erste der passt die Prio vorgibt
+# Der Abstand der Prios erlaubt es Unterprojekten bei Bedarf da noch etwas zwischen zu schieben.
+IncludeCategories:
+  - Regex:           '^<.*\.(grpc\.pb|capnp)\.h>$'
+    Priority:        30
+    SortPriority:    0
+    CaseSensitive:   false
+  - Regex:           '^<Q(t|t?[A-Z][^/]+)>$'
+    Priority:        50
+    SortPriority:    0
+    CaseSensitive:   true
+  - Regex:           '^<q[^/]+.h>$'
+    Priority:        50
+    SortPriority:    0
+    CaseSensitive:   true
+#  - Regex:           '^<(boost|catch2|ctre|date|fmt|gsl|safe|strong_type|toml\+\+|units)/.*/'
+#    Priority:        40
+#    SortPriority:    41
+#    CaseSensitive:   true
+  - Regex:           '^<(boost|catch2|ctre|date|Eigen|fmt|gsl|mp-units|safe|strong_type|toml\+\+)/'
+    Priority:        40
+    SortPriority:    40
+    CaseSensitive:   true
+  - Regex:           '^<[A-Z].*/'
+    Priority:        20
+    SortPriority:    0
+    CaseSensitive:   true
+  - Regex:           '^<.*\.h>'
+    Priority:        60
+    SortPriority:    0
+    CaseSensitive:   false
+  - Regex:           '^<'
+    Priority:        70
+    SortPriority:    0
+    CaseSensitive:   false
+  - Regex:           '^"\.\./\.\./.*'
+    Priority:        10
+    SortPriority:    14
+    CaseSensitive:   false
+  - Regex:           '^"\.\./[^/]+/.*'
+    Priority:        10
+    SortPriority:    13
+    CaseSensitive:   false
+  - Regex:           '^"\.\./.*'
+    Priority:        10
+    SortPriority:    12
+    CaseSensitive:   false
+  - Regex:           '^".*/'
+    Priority:        10
+    SortPriority:    11
+    CaseSensitive:   false
+  - Regex:           '^".*'
+    Priority:        10
+    SortPriority:    10
+    CaseSensitive:   false
+IncludeIsMainRegex:                             '(Test)?$'
+IncludeIsMainSourceRegex:                       ''
+IndentAccessModifiers:                          false
+IndentCaseBlocks:                               false
+IndentCaseLabels:                               true
+IndentExternBlock:                              NoIndent
+IndentGotoLabels:                               true
+IndentPPDirectives:                             AfterHash
+IndentRequiresClause:                           false
+IndentWidth:                                    4
+IndentWrappedFunctionNames:                     false
+InsertBraces:                                   true
+InsertNewlineAtEOF:                             true
+InsertTrailingCommas:                           None
+IntegerLiteralSeparator:
+  Binary:                                       4
+  BinaryMinDigits:                              9
+  Decimal:                                      3
+  DecimalMinDigits:                             9
+  Hex:                                          2
+  HexMinDigits:                                 9
+JavaScriptQuotes:                               Leave
+JavaScriptWrapImports:                          true
+KeepEmptyLinesAtTheStartOfBlocks:               false
+KeepEmptyLinesAtEOF:                            true
+#KeepLineBreaksForNonEmptyLines:                 false
+LambdaBodyIndentation:                          Signature
+LineEnding:                                     DeriveCRLF
+MacroBlockBegin:                                ''
+MacroBlockEnd:                                  ''
+Macros:                                         ["BENCHMARK(x)=[]()"]
+MaxEmptyLinesToKeep:                            1
+NamespaceIndentation:                           None
+ObjCBinPackProtocolList:                        Auto
+ObjCBlockIndentWidth:                           2
+ObjCBreakBeforeNestedBlockParam:                true
+ObjCSpaceAfterProperty:                         false
+ObjCSpaceBeforeProtocolList:                    true
+PackConstructorInitializers:                    BinPack
+PenaltyBreakAssignment:                         2
+PenaltyBreakBeforeFirstCallParameter:           19
+PenaltyBreakComment:                            300
+PenaltyBreakFirstLessLess:                      120
+PenaltyBreakOpenParenthesis:                    0
+PenaltyBreakString:                             1000
+PenaltyBreakTemplateDeclaration:                10
+PenaltyExcessCharacter:                         1000000
+PenaltyIndentedWhitespace:                      0
+PenaltyReturnTypeOnItsOwnLine:                  60
+PointerAlignment:                               Left
+PPIndentWidth:                                  2
+QualifierAlignment:                             Custom
+QualifierOrder:                                 [static, inline, constexpr, const, volatile, type]
+ReferenceAlignment:                             Pointer
+ReflowComments:                                 true
+RemoveBracesLLVM:                               false
+RemoveParentheses:                              Leave
+RemoveSemicolon:                                true
+RequiresClausePosition:                         OwnLine
+RequiresExpressionIndentation:                  Keyword
+SeparateDefinitionBlocks:                       Always
+ShortNamespaceLines:                            0
+SortIncludes:                                   CaseInsensitive
+SortJavaStaticImport:                           Before
+SortUsingDeclarations:                          LexicographicNumeric
+SpaceAfterCStyleCast:                           false
+SpaceAfterLogicalNot:                           false
+SpaceAfterTemplateKeyword:                      false
+SpaceAroundPointerQualifiers:                   Default
+SpaceBeforeAssignmentOperators:                 true
+SpaceBeforeCaseColon:                           true
+SpaceBeforeCpp11BracedList:                     false
+SpaceBeforeCtorInitializerColon:                true
+SpaceBeforeInheritanceColon:                    true
+SpaceBeforeParens:                              Custom
+SpaceBeforeParensOptions:
+  AfterControlStatements:                       true
+  AfterForeachMacros:                           true
+  AfterFunctionDefinitionName:                  false
+  AfterFunctionDeclarationName:                 false
+  AfterIfMacros:                                true
+  AfterOverloadedOperator:                      false
+  AfterRequiresInClause:                        true
+  AfterRequiresInExpression:                    false
+  BeforeNonEmptyParentheses:                    false
+SpaceBeforeRangeBasedForLoopColon:              true
+SpaceBeforeSquareBrackets:                      false
+SpaceInEmptyBlock:                              false
+SpacesBeforeTrailingComments:                   1
+SpacesInAngles:                                 Never
+SpacesInContainerLiterals:                      false
+SpacesInLineCommentPrefix:
+  Minimum:                                      0
+  Maximum:                                      0
+SpacesInParens:                                 Custom
+SpacesInParensOptions:
+  InCStyleCasts:                                false
+  InConditionalStatements:                      true
+  InEmptyParentheses:                           false
+  Other:                                        false
+SpacesInSquareBrackets:                         false
+Standard:                                       Latest
+StatementAttributeLikeMacros:                   [emit]
+StatementMacros:                                [Q_UNUSED, QT_REQUIRE_VERSION]
+TabWidth:                                       4
+UseTab:                                         Never
+WhitespaceSensitiveMacros:                      []
+...
+
+##TODO:
+##                static_assert(options.BaseTraceLevel == TraceLevel::Info);
+##                static_assert(options.MemoryLimit    == SpaceType{50 * Units::MebiBytes});
+
+##        static_assert(sizeof...(args) == std::conditional_t<std::is_same_v<NewState, WaitingForVersions> ||
+##                                                            std::is_same_v<NewState, WaitingForAck>,
+##                                                            std::integral_constant<int, 1>,
+##                                                            std::integral_constant<int, 0>>::value);
+
+##         static_assert(sizeof...(args) == std::conditional_t < std::is_same_v<NewState, WaitingForVersions> ||
+##                           std::is_same_v<NewState, WaitingForAck>,
+##                       std::integral_constant<int, 1>, std::integral_constant < int, 0 >> ::value);
+## 
+
+# Alles oder nur 1. Zeile machtn Unterschied
+##        ret.Position += offset.dropDimensions<Dimension::A>();
+##        ret.Position  = rotateAroundOrigin(ret.Position, offset.a());
