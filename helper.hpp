@@ -276,4 +276,21 @@ inline auto now(void) noexcept {
     return std::chrono::system_clock::now();
 }
 
+template<typename T>
+T pow(T value, std::size_t exp) {
+    T ret = 1;
+    for ( ; exp > 0; --exp ) {
+        ret *= value;
+    }
+    return ret;
+}
+
+inline std::size_t log10(std::int64_t value) {
+    std::size_t ret = 0;
+    for ( ; value >= 10; value /= 10 ) {
+        ++ret;
+    }
+    return ret;
+}
+
 #endif //HELPER_HPP
