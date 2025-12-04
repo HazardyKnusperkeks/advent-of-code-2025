@@ -277,7 +277,7 @@ inline auto now(void) noexcept {
 }
 
 template<typename T>
-T pow(T value, std::size_t exp) {
+T pow(T value, std::size_t exp) noexcept {
     T ret = 1;
     for ( ; exp > 0; --exp ) {
         ret *= value;
@@ -285,12 +285,18 @@ T pow(T value, std::size_t exp) {
     return ret;
 }
 
-inline std::size_t log10(std::int64_t value) {
+inline std::size_t log10(std::int64_t value) noexcept {
     std::size_t ret = 0;
     for ( ; value >= 10; value /= 10 ) {
         ++ret;
     }
     return ret;
+}
+
+inline std::int64_t toDigit(char c) {
+    throwIfInvalid(c >= '0');
+    throwIfInvalid(c <= '9');
+    return c - '0';
 }
 
 #endif //HELPER_HPP
