@@ -154,6 +154,21 @@ struct Coordinate {
         return neighbors() | std::views::filter([](Coordinate c) noexcept { return c.isValid(); });
     }
 
+    auto neighborsWithDiagnonal(void) const noexcept {
+        return std::array{moved(Direction::Up),
+                          moved(Direction::Right),
+                          moved(Direction::Down),
+                          moved(Direction::Left),
+                          moved(Direction::Up).move(Direction::Left),
+                          moved(Direction::Up).move(Direction::Right),
+                          moved(Direction::Down).move(Direction::Left),
+                          moved(Direction::Down).move(Direction::Right)};
+    }
+
+    auto validNeighborsWithDiagnonal(void) const noexcept {
+        return neighborsWithDiagnonal() | std::views::filter([](Coordinate c) noexcept { return c.isValid(); });
+    }
+
     static void setMaxFromMap(MapView map);
 
     static auto allPositions(void) noexcept {
