@@ -1,6 +1,7 @@
 #ifndef COORDINATE3D_HPP
 #define COORDINATE3D_HPP
 
+#include <cmath>
 #include <functional>
 #include <limits>
 
@@ -38,6 +39,10 @@ struct Coordinate3D {
     template<typename U>
     friend constexpr Coordinate3D operator*(U t, const Coordinate3D& c) noexcept {
         return c * t;
+    }
+
+    constexpr double length(void) const noexcept {
+        return std::cbrt(X * X + Y * Y + Z * Z);
     }
 };
 
