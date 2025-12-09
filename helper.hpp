@@ -9,6 +9,7 @@
 #include <format>
 #include <generator>
 #include <optional>
+#include <print> // IWYU pragma: export
 #include <ranges>
 #include <string_view>
 #include <utility>
