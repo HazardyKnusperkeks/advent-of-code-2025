@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <flat_map>
-#include <flat_set>
 #include <ranges>
 #include <vector>
 
@@ -39,37 +38,69 @@ std::vector<Rectangle> calculateRectangles(const List& list) noexcept {
 }
 
 std::int64_t areaOfLargestRedAndGreenRectangle(std::span<const Rectangle> rectangles, const List& list) noexcept {
-    //auto isValidRedAndGreen = [&containsMap](const Rectangle& rectangle) noexcept {
-    //    auto top    = rectangle.C1;
-    //    auto bottom = rectangle.C2;
+    auto isInPolygon = [&list](Coordinate c) {
+        static std::flat_map<Coordinate, std::uint8_t> cache;
+        if ( auto iter = cache.find(c); iter != cache.end() ) {
+            return static_cast<bool>(iter->second);
+        } //if ( auto iter = cache.find(c); iter != cache.end() )
 
-    //if ( top.Row > bottom.Row ) {
-    //    std::swap(top, bottom);
-    //} //if ( top.Row > bottom.Row )
+        bool ret = false;
 
-    //const auto left  = std::min(rectangle.C1.Column, rectangle.C2.Column);
-    //const auto right = std::max(rectangle.C1.Column, rectangle.C2.Column);
+        for ( const auto& [a, b] :
+              std::views::concat(list, std::views::single(list.front())) | std::views::adjacent<2> ) {
+            if ( a.Row == b.Row ) {
+                const auto left  = std::min(a.Column, b.Column);
+                const auto right = std::max(a.Column, b.Column);
+                if ( c.Column >= left && c.Column <= right ) {
+                    if ( c.Row == b.Row ) {
+                        ret = true;
+                        break;
+                    } //if ( c.Row == b.Row )
+                    // ret = !ret;
+                } //if ( c.Column >= left && c.Column <= right )
+            } //if ( a.Row == b.Row )
+            else if ( a.Column == b.Column ) {
+                const auto top    = std::min(a.Row, b.Row);
+                const auto bottom = std::max(a.Row, b.Row);
+                if ( c.Row >= top && c.Row <= bottom ) {
+                    if ( c.Column == b.Column ) {
+                        ret = true;
+                        break;
+                    } //if ( c.Column == b.Column )
+                    ret = !ret;
+                } //if ( c.Row >= left && c.Row <= right )
+            } //else if ( a.Column == b.Column )
+            else {
+                const auto slope     = static_cast<double>(b.Row - a.Row) / static_cast<double>(b.Column - a.Column);
+                const auto offset    = static_cast<double>(a.Row) - slope * static_cast<double>(a.Column);
 
-    //// std::println("\nChecking Area {:d} ({:}) x ({:})", rectangle.Area, rectangle.C1, rectangle.C2);
+                const auto onLineRow = slope * static_cast<double>(c.Column) + offset;
+                const auto top       = std::min(a.Row, b.Row);
+                const auto bottom    = std::max(a.Row, b.Row);
+                if ( onLineRow >= top && onLineRow <= bottom ) {
+                    ret = !ret;
+                } //if ( onLineRow >= top && onLineRow <= bottom )
+            } //else
+            //if ( (a.Row > c.Row) != (b.Row > c.Row) ) {
+            //    const auto slope = (c.Column - a.Column) * (b.Row - a.Row) - (b.Column - a.Column) * (c.Row - a.Row);
+            //    if ( slope == 0 ) {
+            //        ret = true;
+            //        break;
+            //    } //if ( slope == 0 )
+            //    if ( (slope < 0) != (b.Row < a.Row) ) {
+            //        ret = !ret;
+            //    } //if ( (slope < 0) != (b.Row < a.Row) )
+            //} //if ( (a.Row > c.Row) != (b.Row > c.Row) )
+        } //for ( const auto& [a, b] : list | std::views::adjacent<2> )
 
-    //for ( auto row = top.Row; row <= bottom.Row; ++row ) {
-    //    const auto& rowMap = containsMap.Map[row];
-    //    throwIfInvalid(rowMap.size() == 2);
-    //    if ( left < *rowMap.begin() ) {
-    //        return false;
-    //    } //if ( left < *rowMap.begin() )
-    //    if ( right > *rowMap.rbegin() ) {
-    //        return false;
-    //    } //if ( right > *rowMap.rbegin() )
-    //} //for ( auto row = top.Row; row <= bottom.Row; ++row )
-
-    //// std::println("Is Valid");
-    //return true;
-    //};
-    //// std::ranges::for_each(rectangles | std::views::take(250), isValidRedAndGreen);
-    //return 0;
-    //return std::ranges::find_if(rectangles, isValidRedAndGreen)->Area;
-    return 0;
+        cache.emplace(c, ret);
+        return ret;
+    };
+    auto isValidRedAndGreen = [&isInPolygon](const Rectangle& rectangle) {
+        return isInPolygon({rectangle.C1.Row, rectangle.C2.Column}) &&
+               isInPolygon({rectangle.C2.Row, rectangle.C1.Column});
+    };
+    return std::ranges::find_if(rectangles, isValidRedAndGreen)->Area;
 }
 } //namespace
 
