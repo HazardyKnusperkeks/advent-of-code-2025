@@ -25,8 +25,7 @@ concept NeighborFunctionFor = requires(const Function& f, Position a) {
                                   { f(a) } -> x<Position>;
                               };
 
-
-enum class Mode {
+enum class Mode : std::uint8_t {
     Default,
     ReturnPath,
     AllPaths,

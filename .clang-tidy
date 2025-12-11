@@ -1,0 +1,225 @@
+Checks: [
+         -*,
+
+         bugprone-*,
+         -bugprone-bad-signal-to-kill-thread,                               # Wir haben keine direkten Threads.
+         -bugprone-casting-through-void,                                    # Cast zu void* sollte eh im Review triggern.
+         -bugprone-chained-comparison,                                      # Macht auch keiner, der programmieren kann.
+         -bugprone-command-processor,                                       # Kommt nicht vor.
+         -bugprone-crtp-constructor-accessibility,                          # Wenig Code mit CRTP, kein Bedarf das zu checken.
+         -bugprone-dynamic-static-initializers,                             # Das wird einfach nicht deaktiviert.
+         -bugprone-inaccurate-erase,                                        # Das Problem ist durch std::erase gelöst und wird eher verwendet.
+         -bugprone-incorrect-enable-if,                                     # Wir brauchen kein enable_if mehr, wir haben Concepts.
+         -bugprone-incorrect-enable-shared-from-this,                       # Crasht bei Fehlbenutzung, das reicht zur Detektierung.
+         -bugprone-misleading-setter-of-reference,                          # Sehe keinen Use-Case.
+         -bugprone-misplaced-operator-in-strlen-in-alloc,                   # Niemand braucht alloc oder strlen...
+         -bugprone-misplaced-pointer-arithmetic-in-alloc,                   # Siehe oben.
+         -bugprone-move-forwarding-reference,                               # Wird u.a. durch cppcoreguidelines-missing-std-forward abgedeckt.
+         -bugprone-multiple-new-in-one-expression,                          # Es soll eh kein new verwendet werden.
+         -bugprone-narrowing-conversions,                                   # Sollte bereits durch -Wconversion abgedeckt sein.
+         -bugprone-no-escape,                                               # Wird nicht verwendet.
+         -bugprone-non-zero-enum-to-bool-conversion,                        # Enum zu bool sollte es eh nicht geben, dank scoped enums.
+         -bugprone-nondeterministic-pointer-iteration-order,                # Zu obskur.
+         -bugprone-not-null-terminated-result,                              # So etwas löst C++.
+         -bugprone-posix-return,                                            # Wir verwenden kein posix.
+         -bugprone-reserved-identifier,                                     # Wird durch readability-identifier-naming erschlagen.
+         -bugprone-standalone-empty,                                        # Ist in der Regel als nodiscard markiert.
+         -bugprone-suspicious-enum-usage,                                   # Durch die Flags<> Klasse behandelt.
+         -bugprone-suspicious-memory-comparison,                            # Wir verwenden kein memcmp.
+         -bugprone-suspicious-memset-usage,                                 # Same mit memset.
+         -bugprone-suspicious-missing-comma,                                # Das sollte auch nicht vorkommen.
+         -bugprone-suspicious-realloc-usage,                                # Kein realloc...
+         -bugprone-suspicious-semicolon,                                    # Wird bereits durch die automatische Formatierung klar.
+         -bugprone-suspicious-string-compare,                               # Kein strcmp.
+         -bugprone-tagged-union-member-count,                               # Wir haben std::variant.
+         -bugprone-terminating-continue,                                    # _Sehr_ spezifisch...
+         -bugprone-throwing-static-initialization,                          # Nervt zu sehr, vor allem in Catch2.
+         -bugprone-unchecked-string-to-number-conversion,                   # Wird nicht benutzt.
+         -bugprone-undefined-memory-manipulation,                           # Machen wir nicht, aber selbst wenn meckert der Compiler schon.
+         -bugprone-unhandled-exception-at-new,                              # Das sehen wir genau andersherum.
+         -bugprone-unintended-char-ostream-output,                          # Kein ostream, kein Interesse.
+         -bugprone-unique-ptr-array-mismatch,                               # Kein new, kein Problem.
+         -bugprone-unsafe-functions,                                        # C Zeug...
+         cert-dcl50-cpp,
+         cert-flp30-c,
+         cert-oop58-cpp,
+         clang-analyzer-*,
+         -clang-analyzer-core.CallAndMessage,                               # Crasht sofort und wird ggf. auch vom Compiler schon angemerkt.
+         -clang-analyzer-core.VLASize,                                      # Haben eh keine VLA.
+         -clang-analyzer-cplusplus.ArrayDelete,                             # Kein delete, kein Problem.
+         -clang-analyzer-cplusplus.Move,                                    # Use after move haben wir schon.
+         -clang-analyzer-cplusplus.NewDelete,                               # Kein new, kein delete.
+         -clang-analyzer-cplusplus.NewDeleteLeaks,                          # Immer noch.
+         -clang-analyzer-cplusplus.SelfAssignment,                          # Gibt es auch schon einen Check für.
+         -clang-analyzer-cplusplus.PureVirtualCall,                         # Macht der Compiler schon.
+         -clang-analyzer-fuchsia.*,                                         # Wir sind nicht fuchsia.
+         -clang-analyzer-nullability.*,                                     # Das sind ObjC-Checks.
+         -clang-analyzer-optin.mpi.*,                                       # Kein Plan was MPI überhaupt ist.
+         -clang-analyzer-optin.osx.*,                                       # Wir machen kein OSX.
+         -clang-analyzer-optin.portability.UnixAPI,                         # Betrifft uns nicht.
+         -clang-analyzer-optin.taint.TaintedAlloc,                          # Kein Malloc bei uns.
+         -clang-analyzer-osx-*,                                             # Wir machen kein OSX.
+         -clang-analyzer-security.PutenvStackArray,                         # Benutzen putenv nicht.
+         -clang-analyzer-security.SetgidSetuidOrder,                        # Benutzen wir auch nicht.
+         -clang-analyzer-security.cert.env.InvalidPtr,                      # Benutzen wir immer noch nicht.
+         -clang-analyzer-security.insecureAPI.*,                            # Benutzen wir alles nicht.
+         -clang-analyzer-unix.*,                                            # Unix spezifisch.
+         -clang-analyzer-webkit.*,                                          # WebKit spezifisch.
+         clang-diagnostic-*,
+         cppcoreguidelines-*,
+         -cppcoreguidelines-macro-to-enum,                                  # Makros kommen eh nicht dran.
+         -cppcoreguidelines-misleading-capture-default-by-value,            # Default captures sollen eh nicht verwendet werden.
+         -cppcoreguidelines-narrowing-conversions,                          # Ist das gleiche wie bugprone-narrowing-conversions.
+         -cppcoreguidelines-owning-memory,                                  # Regeln wir über Smart-Pointer, nicht über gsl::owner.
+         -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,    # Wo gemacht, wollen wir das auch. Außerdem greifen asserts im Debug-Build.
+         #-cppcoreguidelines-pro-bounds-constant-array-index,               # Noch offen, ob der gewollt ist...
+         -cppcoreguidelines-pro-type-vararg,                                # Um das nicht zu haben brauchen wir keinen Check.
+         google-build-namespaces,
+         google-build-using-namespace,
+         google-default-arguments,
+         google-explicit-constructor,
+         google-global-names-in-headers,
+         hicpp-exception-baseclass,
+         misc-const-correctness,
+         misc-definitions-in-headers,
+         misc-misplaced-const,
+         misc-new-delete-overloads,
+         misc-non-copyable-objects,
+         misc-override-with-different-visibility,
+         misc-redundant-expression,
+         misc-throw-by-value-catch-by-reference,
+         misc-uniqueptr-reset-release,
+         modernize-*,
+         -modernize-avoid-bind,                                             # Code ist neu genug, dass wir kein std::bind haben.
+         -modernize-avoid-c-arrays,                                         # Ist als cppcoreguidelines-avoid-c-arrays aktiviert.
+         -modernize-avoid-setjmp-longjmp,                                   # Auf die Idee würde ja auch niemand kommen.
+         -modernize-avoid-variadic-functions,                               # Benutzt keiner.
+         -modernize-deprecated-ios-base-aliases,                            # IO-Streams werden in der Regel nicht einmal verwendet.
+         -modernize-loop-convert,                                           # Das bekommen wir so per Review hin.
+         -modernize-macro-to-enum,                                          # Siehe cppcoreguidelines-macro-to-enum.
+         -modernize-make-shared,                                            # Brauchen wir keinen Check für.
+         -modernize-make-unique,                                            # ^^
+         -modernize-redundant-void-arg,                                     # Ich möchte eher das Gegenteil.
+         -modernize-replace-auto-ptr,                                       # std::auto_ptr habe ich noch nie benutzt oder gesehen.
+         -modernize-replace-disallow-copy-and-assign-macro,                 # Recht spezifisch.
+         -modernize-replace-random-shuffle,                                 # Niesche, die wir nicht treffen.
+         -modernize-shrink-to-fit,                                          # Auch noch nie gemacht, daher nicht benötigt.
+         -modernize-unary-static-assert,                                    # Brauchen wir nicht.
+         -modernize-use-bool-literals,                                      # So alt ist unser Code auch nicht.
+         -modernize-use-constraints,                                        # Muss auch nicht gecheckt werden.
+         -modernize-use-default-member-init,                                # Als cppcoreguidelines-use-default-member-init aktiviert.
+         -modernize-use-noexcept,                                           # Wir benutzen zwar noexcept, aber wir haben keine Throw-Spezifikation, die ersetzt werden muss.
+         -modernize-use-nullptr,                                            # Ähnlicher Grund.
+         -modernize-use-override,                                           # Ist als cppcoreguidelines-explicit-virtual-functions aktiviert.
+         -modernize-use-starts-ends-with,                                   # Haben wir nicht.
+         -modernize-use-std-format,                                         # Wir bleiben bei fmt::format.
+         -modernize-use-std-numbers,                                        # Haben auch solche Konstanten nicht bei uns.
+         -modernize-use-std-print,                                          # Analog zu format.
+         -modernize-use-trailing-return-type,                               # Sehe ich anders.
+         -modernize-use-uncaught-exceptions,                                # Kein Problem bei uns.
+         performance-*,
+         -performance-faster-string-find,                                   # Macht keiner.
+         -performance-noexcept-destructor,                                  # Ist als cppcoreguidelines-noexcept-destructor aktiviert.
+         -performance-noexcept-move-constructor,                            # Ist als cppcoreguidelines-noexcept-move-operations aktiviert.
+         -performance-noexcept-swap,                                        # Ist als cppcoreguidelines-noexcept-swap aktiviert.
+         -performance-type-promotion-in-math-fn,                            # Machen eh alles std::
+         readability-*,
+         -readability-braces-around-statements,                             # Erledigt clang-format bereits für uns.
+         -readability-delete-null-pointer,                                  # Da wir kein delete haben (sollten), brauchen wir auch kein Check für dessen Benutzung.
+         -readability-duplicate-include,                                    # Erledigt clang-format.
+         -readability-identifier-length,                                    # Stört sehr viel mehr als es bringt.
+         -readability-magic-numbers,                                        # Ist als cppcoreguidelines-avoid-magic-numbers aktiviert.
+         -readability-math-missing-parentheses,                             # Ein bischen Punkt vor Strich darf ja wohl erwartet werden...
+         -readability-misleading-indentation,                               # Wird von clang-format gefixt.
+         -readability-misplaced-array-index,                                # Kommt nicht vor.
+         -readability-operators-representation,                             # Ich kenne keinen der auf die Idee kommen würde die Wörter zu benutzen.
+         -readability-redundant-casting,                                    # Meckert der GCC schon an.
+         -readability-redundant-control-flow,                               # Explizites return ist erwünscht.
+         -readability-redundant-function-ptr-dereference,                   # Funktions-Pointer sind so selten, das passiert dann auch nicht so oft. Zumal std::invoke verwendet werden sollte.
+         -readability-simplify-subscript-expr,                              # Auch zu speziell.
+         -readability-string-compare,                                       # Kommt auch keiner so schnell auf die Idee.
+         -readability-suspicious-call-argument,                             # Wird viel zu viel Laufzeit brauchen, und das Problem lässt sich durch starke Typen in der Regel fixen.
+         -readability-uniqueptr-delete-release,                             # Kein delete, check erledigt.
+         -readability-uppercase-literal-suffix,                             # Kein Bedarf.
+         -readability-use-anyofallof,                                       # Die Migration hat schon statt gefunden.
+    ]
+
+CheckOptions:
+- key:   bugprone-argument-comment.StrictMode
+  value: true
+- key:   bugprone-assert-side-effect.AssertMacros
+  value: 'assert,TRACE_ASSERT,TRACE_ASSUME,TRACE_SOFT_ASSERT,Q_ASSERT'
+- key:   bugprone-exception-escape.IgnoredExceptions
+  value: 'std::bad_alloc'
+- key:   bugprone-suspicious-include.IgnoredRegex
+  value: 'moc_.*\.cpp'
+- key:   cppcoreguidelines-avoid-do-while.IgnoreMacros
+  value: true
+- key:   cppcoreguidelines-explicit-virtual-functions.IgnoreDestructors
+  value: true
+- key:   cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+  value: true
+- key:   cppcoreguidelines-special-member-functions.AllowImplicitlyDeletedCopyOrMove
+  value: true
+- key:   modernize-deprecated-headers.CheckHeaderFile
+  value: true
+- key:   modernize-raw-string-literal.ReplaceShorterLiterals
+  value: true
+- key:   modernize-use-ranges.UseReversePipe
+  value: true
+- key:   performance-inefficient-vector-operation.VectorLikeClasses
+  value: '::std::vector;::Std::Vector'
+- key:   readability-function-cognitive-complexity.IgnoreMacros
+  value: true
+- key:   readability-identifier-naming.ClassCase
+  value: CamelCase
+- key:   readability-identifier-naming.ClassMemberCase
+  value: CamelCase
+- key:   readability-identifier-naming.ClassMethodCase
+  value: camelBack
+- key:   readability-identifier-naming.ConceptCase
+  value: CamelCase
+- key:   readability-identifier-naming.ConstantCase
+  value: CamelCase
+- key:   readability-identifier-naming.ConstantParameterCase
+  value: camelBack
+- key:   readability-identifier-naming.EnumCase
+  value: CamelCase
+- key:   readability-identifier-naming.EnumConstantCase
+  value: CamelCase
+- key:   readability-identifier-naming.FunctionCase
+  value: camelBack
+- key:   readability-identifier-naming.LocalConstantCase
+  value: camelBack
+- key:   readability-identifier-naming.LocalVariableCase
+  value: camelBack
+- key:   readability-identifier-naming.MacroDefinitionCase
+  value: UPPER_CASE
+- key:   readability-identifier-naming.MemberCase
+  value: CamelCase
+- key:   readability-identifier-naming.MethodCase
+  value: camelBack
+- key:   readability-identifier-naming.NamespaceCase
+  value: CamelCase
+- key:   readability-identifier-naming.ParameterCase
+  value: camelBack
+- key:   readability-identifier-naming.StructCase
+  value: CamelCase
+- key:   readability-identifier-naming.TemplateParameterCase
+  value: CamelCase
+- key:   readability-identifier-naming.TypeAliasCase
+  value: CamelCase
+- key:   readability-identifier-naming.UnionCase
+  value: CamelCase
+- key:   readability-identifier-naming.VariableCase
+  value: CamelCase
+- key:   readability-implicit-bool-conversion.AllowPointerConditions
+  value: true
+- key:   readability-inconsistent-declaration-parameter-name.Strict
+  value: true
+- key:   readability-qualified-auto.AllowedTypes
+  value: '[i|I]terator$'
+- key:   readability-redundant-string-init.StringNames
+  value: '::std::basic_string;::std::basic_string_view;QString;QLatin1String,QStringView'
+- key:   readability-simplify-boolean-expr.SimplifyDeMorganRelaxed
+  value: true
