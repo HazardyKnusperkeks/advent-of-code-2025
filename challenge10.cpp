@@ -3,15 +3,18 @@
 #include "helper.hpp"
 #include "print.hpp"
 
+#include <Eigen/Dense>
+#include <Eigen/LU>
+
 #include <algorithm>
 #include <deque>
 #include <flat_set>
-#include <future>
 #include <iterator>
+#include <mutex>
 #include <numeric>
 #include <queue>
 #include <ranges>
-#include <thread>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -101,9 +104,6 @@ std::int64_t fewestLightPresses(const Machine& machine) {
     return -1;
 }
 
-std::atomic<int>  nextid   = 0;
-thread_local auto threadId = []() { return ++nextid; }();
-
 std::int64_t fewestJoltagePresses2(const Machine& machine) {
     using NodeT    = std::vector<std::int64_t>;
 
@@ -115,7 +115,8 @@ std::int64_t fewestJoltagePresses2(const Machine& machine) {
     };
 
     const auto heuristic = [&machine](const NodeT& node) noexcept {
-        return std::ranges::max(std::views::zip_transform(std::minus<>{}, machine.Joltage, node));
+        return std::ranges::fold_left(std::views::zip_transform(std::minus<>{}, machine.Joltage, node), 0,
+                                      std::plus<>{});
     };
 
     struct NodeAndCost {
@@ -126,17 +127,25 @@ std::int64_t fewestJoltagePresses2(const Machine& machine) {
         bool operator<(const NodeAndCost& that) const noexcept {
             return std::tie(CostAndHeuristic, Cost) > std::tie(that.CostAndHeuristic, that.Cost);
         }
+
+        constexpr bool operator==(const NodeAndCost& that) const noexcept = default;
     };
 
     std::priority_queue<NodeAndCost> queue;
     std::flat_set<NodeT>             visited;
-    queue.emplace(NodeT(machine.TargetLights.size(), false), 0, 0);
+    NodeT                            firstNode(machine.TargetLights.size(), false);
+    queue.emplace(firstNode, 0, heuristic(firstNode));
 
     while ( !queue.empty() ) {
         const auto current = queue.top();
         queue.pop();
 
         if ( visited.contains(current.Node) ) {
+            static int skipped = 0;
+            if ( ++skipped % 10000 == 0 ) {
+                std::println("Skipped {:d} - {:d}", skipped, queue.size());
+                myFlush();
+            }
             continue;
         } //if ( visited.contains(current.Node) )
 
@@ -146,19 +155,22 @@ std::int64_t fewestJoltagePresses2(const Machine& machine) {
 
         visited.insert(current.Node);
 
-        if ( visited.size() % 10000 == 0 ) {
-            std::println("{:8d} - {:3d} - {:3d} @ {:2d} todo {:8d}", visited.size(), current.Cost,
-                         current.CostAndHeuristic, threadId, queue.size());
+        if ( visited.size() % 2500 == 0 ) {
+            std::println("{:8d} - {:3d} - {:3d} todo {:8d}", visited.size(), current.Cost, current.CostAndHeuristic,
+                         queue.size());
+            myFlush();
         } //if ( visited.size() % 10000 == 0 )
 
         for ( const auto& button : machine.Buttons ) {
             auto nextNode = current.Node;
             add(nextNode, button);
-            if ( !visited.contains(nextNode) &&
+            if ( //!visited.contains(nextNode) &&
                  std::ranges::all_of(std::views::zip_transform(std::ranges::less_equal{}, nextNode, machine.Joltage),
                                      [](bool b) noexcept { return b; }) ) {
                 const auto heuristicCost = current.Cost + 1 + heuristic(nextNode);
-                queue.emplace(std::move(nextNode), current.Cost + 1, heuristicCost);
+                if ( heuristicCost <= current.CostAndHeuristic ) {
+                    queue.emplace(std::move(nextNode), current.Cost + 1, heuristicCost);
+                } //if ( heuristicCost <= current.CostAndHeuristic )
             } //if ( std::ranges::all_of(std::views::zip_transform(std::ranges::less_equal{}, nextNode,
               //machine.Joltage),[](bool b)noexcept{return b;}) )
         } //for ( const auto& button : machine.Buttons )
@@ -262,7 +274,7 @@ struct Fraction {
     }
 };
 
-std::int64_t fewestJoltagePresses(const Machine& machine) {
+std::int64_t fewestJoltagePresses3(const Machine& machine) {
     std::vector<std::int64_t> buttonCounter;
     buttonCounter.resize(machine.Joltage.size());
 
@@ -404,15 +416,15 @@ std::int64_t fewestJoltagePresses(const Machine& machine) {
                         auto ret = at(1, Columns - KilledColumns - 1);
                         throwIfInvalid(ret.Denominator == 1);
                         return ret.Numerator;
-                        // throwIfInvalid(at(0, Columns - KilledColumns - 1) == 0);
-                        // InPhaseOne = false;
-                        // StartRow   = 1;
+                        //throwIfInvalid(at(0, Columns - KilledColumns - 1) == 0);
+                        //InPhaseOne = false;
+                        //StartRow   = 1;
                     } //if ( ArtificalVariables == 0 )
                 } //if ( InPhaseOne )
 
-                // print();
-                // std::println("===");
-                // myFlush();
+                //print();
+                //std::println("===");
+                //myFlush();
             } //while ( true )
             return -1;
         }
@@ -455,13 +467,348 @@ std::int64_t fewestJoltagePresses(const Machine& machine) {
         tableau.addTo(matrixOffset + i, artificalTargetRow);
     } //for ( auto i = 0zu; i < numberOfArtificalVariables; ++i )
 
-    // tableau.print();
-    // std::println("===");
-    // myFlush();
+    //tableau.print();
+    //std::println("===");
+    //myFlush();
     auto ret = tableau.solve();
-    // tableau.print();
+    //tableau.print();
 
     return ret;
+}
+
+struct Equation {
+    std::vector<std::int64_t> Coefficients;
+    std::int64_t              Result = 0;
+
+    Equation& operator-=(const Equation& other) noexcept {
+        auto subtract = [](std::pair<std::int64_t&, const std::int64_t&> pair) noexcept { pair.first -= pair.second; };
+        subtract({Result, other.Result});
+        std::ranges::for_each(std::views::zip(Coefficients, other.Coefficients), subtract);
+        return *this;
+    }
+
+    Equation& operator*=(std::int64_t factor) noexcept {
+        auto multiply = [factor](std::int64_t& x) noexcept {
+            x *= factor;
+            return;
+        };
+        multiply(Result);
+        std::ranges::for_each(Coefficients, multiply);
+        return *this;
+    }
+
+    [[nodiscard]] Equation operator*(std::int64_t factor) const noexcept {
+        return Equation{*this} *= factor;
+    }
+
+    Equation& operator/=(std::int64_t divider) {
+        auto divide = [divider](std::int64_t& x) {
+            throwIfInvalid(x % divider == 0);
+            x /= divider;
+            return;
+        };
+        divide(Result);
+        std::ranges::for_each(Coefficients, divide);
+        return *this;
+    }
+};
+
+int gover  = 0;
+int gunder = 0;
+
+std::int64_t fewestJoltagePresses4(const Machine& machine) {
+    std::vector<Equation> equations;
+    equations.resize(machine.Joltage.size());
+
+    for ( auto [id, joltage] : std::views::enumerate(machine.Joltage) ) {
+        auto& equation  = equations[static_cast<std::size_t>(id)];
+        equation.Result = joltage;
+        equation.Coefficients.resize(machine.Buttons.size());
+    } //for ( auto [id, joltage] : std::views::enumerate(machine.Joltage) )
+
+    for ( const auto& [id, button] : std::views::enumerate(machine.Buttons) ) {
+        for ( auto joltage : button ) {
+            equations[static_cast<std::size_t>(joltage)].Coefficients[static_cast<std::size_t>(id)] = 1;
+        } //for ( auto joltage : button )
+    } //for ( const auto& [id, button] : std::views::enumerate(machine.Buttons) )
+
+    const auto columns = machine.Buttons.size();
+    const auto rows    = machine.Joltage.size();
+    bool       over    = columns < rows;
+    bool       under   = columns > rows;
+
+    std::size_t column = 0;
+    for ( auto targetRow = 0zu; targetRow < rows; ++targetRow ) {
+        while ( column < columns ) {
+            const auto swapRow = static_cast<std::size_t>(std::ranges::distance(
+                equations.begin(), std::ranges::min_element(equations | std::views::drop(targetRow), {},
+                                                            [column](const Equation& equation) noexcept {
+                                                                auto ret = equation.Coefficients[column];
+                                                                if ( ret == 0 ) {
+                                                                    ret = 0xFFFFFFFF;
+                                                                } //if ( ret == 0 )
+                                                                return std::abs(ret);
+                                                            })));
+
+            if ( swapRow == rows ) {
+                under = true;
+                over  = false;
+                ++column;
+                continue;
+            } //if ( swapRow == rows )
+
+            Equation& thisEquation = equations[targetRow];
+            if ( swapRow != targetRow ) {
+                std::swap(equations[swapRow], thisEquation);
+            } //if ( swapRow != targetRow )
+
+            if ( const auto divider = thisEquation.Coefficients[column]; divider != 1 ) {
+                if ( divider == 0 ) {
+                    under = true;
+                    over  = false;
+                    ++column;
+                    continue;
+                } //if ( divider == 0 )
+                thisEquation /= divider;
+            } //if ( const auto divider = equations[targetRow].Coefficients[column]; divider != 1 )
+
+            std::ranges::for_each(equations | std::views::drop(targetRow + 1),
+                                  [column, &thisEquation](Equation& equation) {
+                                      equation -= thisEquation * equation.Coefficients[column];
+                                      return;
+                                  });
+
+            ++column;
+            break;
+        } //while ( column < columns )
+    } //for ( auto targetRow = 0zu; targetRow < rows; ++targetRow )
+
+    std::int64_t ret  = 0;
+    gover            += over;
+    gunder           += under;
+
+    std::println("Over {} Under {} Result {}", over, under, ret);
+
+    return ret;
+}
+
+std::int64_t fewestJoltagePresses5(const Machine& machine) {
+    Eigen::MatrixXd a(std::ssize(machine.Joltage), std::ssize(machine.Buttons));
+    Eigen::VectorXd b(std::ssize(machine.Joltage));
+
+    for ( auto [id, joltage] : std::views::enumerate(machine.Joltage) ) {
+        b[id] = static_cast<double>(joltage);
+    } //for ( auto [id, joltage] : std::views::enumerate(machine.Joltage) )
+
+    for ( const auto& [id, button] : std::views::enumerate(machine.Buttons) ) {
+        for ( auto joltage : button ) {
+            a(joltage, id) = 1;
+        } //for ( auto joltage : button )
+    } //for ( const auto& [id, button] : std::views::enumerate(machine.Buttons) )
+
+    const Eigen::VectorXd x = a.fullPivLu().solve(b);
+    std::println("{}", x);
+    return 0;
+}
+
+std::int64_t fewestJoltagePresses(const Machine& machine) {
+    using Type               = Eigen::RowVectorX<std::int64_t>;
+
+    const auto vectorButtons = machine.Buttons | std::views::transform([&machine](const Button& button) noexcept {
+                                   Type ret(std::ssize(machine.Joltage));
+                                   ret.setZero();
+                                   for ( auto id : button ) {
+                                       ret[id] = 1;
+                                   } //for ( auto id : button )
+                                   return ret;
+                               }) |
+                               std::ranges::to<std::vector>();
+
+    const auto target = [&machine](void) noexcept {
+        Type ret(std::ssize(machine.Joltage));
+        std::ranges::copy(machine.Joltage, ret.begin());
+        return ret;
+    }();
+
+    const auto distanceToTarget = [&target](const Type& current) noexcept {
+        return std::ranges::fold_left(Type{target - current} | std::views::transform(std::abs<std::int64_t>), 0,
+                                      std::plus<>{});
+    };
+
+    const auto largestJoltageIndex = std::ranges::distance(target.begin(), std::ranges::max_element(target));
+    const auto minimumPresses      = target[largestJoltageIndex];
+    const auto indexOfBestCandidate =
+        std::ranges::min(
+            std::views::enumerate(vectorButtons) |
+                std::views::filter([largestJoltageIndex](const auto& idAndButton) noexcept {
+                    return std::get<1>(idAndButton)[largestJoltageIndex] != 0;
+                }) |
+                std::views::transform([&distanceToTarget, minimumPresses](const auto& idAndButton) noexcept {
+                    return std::pair{static_cast<std::size_t>(std::get<0>(idAndButton)),
+                                     distanceToTarget(std::get<1>(idAndButton) * minimumPresses)};
+                }),
+            {}, &std::pair<std::size_t, std::int64_t>::second)
+            .first;
+
+    std::vector<std::int64_t> buttonPresses(machine.Buttons.size());
+    buttonPresses[indexOfBestCandidate]       = minimumPresses;
+    auto sumOfButtonPresses                   = minimumPresses;
+    Type current                              = vectorButtons[indexOfBestCandidate] * minimumPresses;
+    auto currentDistance                      = distanceToTarget(current);
+    using CandidatesToIncrease                = std::tuple<std::ptrdiff_t, Type, std::ptrdiff_t, Type>;
+
+    const auto individualCandidatesToIncrease = std::views::enumerate(vectorButtons);
+    const auto candidatesToIncrease =
+        std::views::cartesian_product(individualCandidatesToIncrease, individualCandidatesToIncrease) |
+        std::views::transform([](const std::tuple<std::tuple<std::ptrdiff_t, const Type&>,
+                                                  std::tuple<std::ptrdiff_t, const Type&>>& tupleOfTuple) noexcept {
+            return std::tuple_cat(std::get<0>(tupleOfTuple), std::get<1>(tupleOfTuple));
+        }) |
+        std::views::filter([](const CandidatesToIncrease& candidateToIncrease) noexcept {
+            const auto& [id1, button1, id2, button2] = candidateToIncrease;
+            return id1 <= id2;
+        }) |
+        std::ranges::to<std::vector>();
+
+    struct Operation {
+        Type         New;
+        std::int64_t Distance;
+        std::size_t  DecreaseIndex;
+        std::size_t  IncreaseIndex1;
+        std::size_t  IncreaseIndex2;
+
+        constexpr auto operator<=>(const Operation& that) const noexcept {
+            return std::tie(Distance, DecreaseIndex, IncreaseIndex1) <=>
+                   std::tie(that.Distance, that.DecreaseIndex, that.IncreaseIndex1);
+        }
+    };
+
+    std::flat_set<Operation> beenThereDoneThat;
+
+    while ( current != target ) {
+        auto candidatesToDecrease =
+            std::views::enumerate(buttonPresses) |
+            std::views::filter(
+                [](const std::pair<std::ptrdiff_t, const std::int64_t&> pair) noexcept { return pair.second > 0; });
+
+        auto dontRunAway = [&target, &current](const Operation& operation) noexcept {
+            return std::ranges::all_of(std::views::zip_transform(
+                                           [](const std::int64_t targetValue, const std::int64_t currentValue,
+                                              const std::int64_t newValue) noexcept {
+                                               return newValue <= targetValue || newValue <= currentValue;
+                                           },
+                                           target, current, operation.New),
+                                       [](bool b) noexcept { return b; });
+        };
+
+        auto operatrionsForSwap =
+            std::views::cartesian_product(candidatesToDecrease, individualCandidatesToIncrease) |
+            std::views::filter([](const std::tuple<std::tuple<std::ptrdiff_t, std::int64_t>,
+                                                   std::tuple<std::ptrdiff_t, Type>>& candidates) noexcept {
+                const auto& [candidateToDecrease, candidateToIncrease] = candidates;
+                return std::get<0>(candidateToDecrease) != std::get<0>(candidateToIncrease);
+            }) |
+            std::views::transform([&current, &vectorButtons, &distanceToTarget](
+                                      const std::tuple<std::tuple<std::ptrdiff_t, std::int64_t>,
+                                                       std::tuple<std::ptrdiff_t, Type>>& candidates) noexcept {
+                const auto& [candidateToDecrease, candidateToIncrease] = candidates;
+                const auto& [indexToDecrease, _]                       = candidateToDecrease;
+                const auto& [indexToIncrease, buttonToIncrease]        = candidateToIncrease;
+
+                Operation ret{.New =
+                                  current + buttonToIncrease - vectorButtons[static_cast<std::size_t>(indexToDecrease)],
+                              .Distance       = 0,
+                              .DecreaseIndex  = static_cast<std::size_t>(indexToDecrease),
+                              .IncreaseIndex1 = static_cast<std::size_t>(indexToIncrease),
+                              .IncreaseIndex2 = static_cast<std::size_t>(-1)};
+                ret.Distance = distanceToTarget(ret.New);
+                try {
+                    //std::println("1 From {} to {} Distance {} -> {}", current, ret.New, distanceToTarget(current),
+                    //             ret.Distance);
+                    //myFlush();
+                }
+                catch ( ... ) {
+                }
+                return ret;
+            }) |
+            std::views::filter([&beenThereDoneThat, &dontRunAway](const Operation& operation) noexcept {
+                return !beenThereDoneThat.contains(operation) && dontRunAway(operation);
+            });
+
+        auto applySwap = [&current, &buttonPresses, &sumOfButtonPresses, &currentDistance,
+                          &beenThereDoneThat](Operation& operation) {
+            currentDistance = operation.Distance;
+            ++buttonPresses[operation.IncreaseIndex1];
+            if ( operation.IncreaseIndex2 != static_cast<std::size_t>(-1) ) { //NOLINT
+                ++buttonPresses[operation.IncreaseIndex2];
+                ++sumOfButtonPresses;
+                std::print("Double ");
+                beenThereDoneThat.clear();
+            } //if ( operation.IncreaseIndex2 != static_cast<std::size_t>(-1) )
+            else {
+                beenThereDoneThat.insert(operation);
+            } //else -> if ( operation.IncreaseIndex2 != static_cast<std::size_t>(-1) )
+            current = std::move(operation.New);
+            throwIfInvalid(--buttonPresses[operation.DecreaseIndex] >= 0, "Negative Button Presses are not valid");
+
+            std::println("Chosen: {} Distance {}", current, operation.Distance);
+            return;
+        };
+
+        Operation operationSwap = std::ranges::min(operatrionsForSwap, {}, &Operation::Distance);
+        //0: 16.0,
+        //1: 5.
+        //2: 4.0,
+        //3: 18.0,
+        //4: 16
+        //5: 7
+        //6: 17.0,
+        //7: 0.0,
+        //8: 6
+
+        if ( operationSwap.Distance <= currentDistance ) {
+            applySwap(operationSwap);
+            continue;
+        } //if ( operationSwap.Distance < currentDistance )
+
+        auto operationsForDoubleSwap =
+            std::views::cartesian_product(candidatesToDecrease, candidatesToIncrease) |
+            std::views::transform([&current, &vectorButtons, &distanceToTarget](
+                                      const std::tuple<std::tuple<std::ptrdiff_t, std::int64_t>, CandidatesToIncrease>&
+                                          candidates) noexcept {
+                const auto& [candidateToDecrease, candidateToIncrease] = candidates;
+                const auto& [indexToDecrease, _]                       = candidateToDecrease;
+                const auto& [indexToIncrease1, buttonToIncrease1, indexToIncrease2, buttonToIncrease2] =
+                    candidateToIncrease;
+
+                Operation ret{.New = current + buttonToIncrease1 + buttonToIncrease2 -
+                                     vectorButtons[static_cast<std::size_t>(indexToDecrease)],
+                              .Distance       = 0,
+                              .DecreaseIndex  = static_cast<std::size_t>(indexToDecrease),
+                              .IncreaseIndex1 = static_cast<std::size_t>(indexToIncrease1),
+                              .IncreaseIndex2 = static_cast<std::size_t>(indexToIncrease2)};
+                ret.Distance = distanceToTarget(ret.New);
+                try {
+                    //std::println("2 From {} to {} Distance {} -> {}", current, ret.New, distanceToTarget(current),
+                    //ret.Distance);
+                    //myFlush();
+                }
+                catch ( ... ) {
+                }
+                return ret;
+            }) |
+            std::views::filter(dontRunAway);
+        Operation operationDoubleSwap = std::ranges::min(operationsForDoubleSwap, {}, &Operation::Distance);
+
+        if ( operationSwap.Distance <= operationDoubleSwap.Distance ) {
+            applySwap(operationSwap);
+        } //if ( operationSwap.Distance <= operationDoubleSwap.Distance )
+        else {
+            applySwap(operationDoubleSwap);
+        } //else -> if ( operationSwap.Distance <= operationDoubleSwap.Distance )
+    } //while ( current != target )
+
+    return sumOfButtonPresses;
 }
 } //namespace
 
@@ -474,8 +821,8 @@ bool challenge10(const std::vector<std::string_view>& input) {
     auto       completed = 0;
     const auto total     = std::ssize(machines);
     std::mutex mutex;
-    auto       update = [&](const Machine& machine) noexcept {
-        const auto             ret      = fewestJoltagePresses(machine);
+    auto       update = [&](const Machine& machine) {
+        const auto             ret      = fewestJoltagePresses2(machine);
         const auto             now      = ::now();
         const auto             duration = std::chrono::duration_cast<std::chrono::duration<double>>(now - start);
         const std::scoped_lock lock{mutex};
@@ -483,24 +830,14 @@ bool challenge10(const std::vector<std::string_view>& input) {
         const auto perSecond     = completed / duration.count();
         const auto remaining     = total - completed;
         const auto remainingTime = static_cast<double>(remaining) / perSecond;
-        std::println("{:3d} ({:6.2f}%) {:8.2f} / min => {:6.2f} min @ {:2d}", completed,
+        std::println("{:3d} ({:6.2f}%) {:8.2f} / min => {:6.2f} min", completed,
                      static_cast<double>(completed) / static_cast<double>(total) * 100., perSecond * 60.,
-                     remainingTime / 60., threadId);
+                     remainingTime / 60.);
         myFlush();
         return ret;
     };
-    //auto futures =
-    //    machines | std::views::chunk(machines.size() / std::thread::hardware_concurrency()) |
-    //    std::views::transform([&update](const auto& machineRange) noexcept {
-    //        return std::async(std::launch::async, [&machineRange, &update](void) noexcept {
-    //            return std::ranges::fold_left(machineRange | std::views::transform(update), 0, std::plus<>{});
-    //        });
-    //    }) |
-    //    std::ranges::to<std::vector>();
-    //const auto sum2 =
-    //    std::ranges::fold_left(futures | std::views::transform(&std::future<std::int64_t>::get), 0, std::plus<>{});
-    const auto sum2 =
-        std::ranges::fold_left(machines /*| std::views::take(1)*/ | std::views::transform(update), 0, std::plus<>{});
+    const auto sum2 = std::ranges::fold_left(
+        machines | std::views::drop(26) | std::views::take(1) | std::views::transform(update), 0, std::plus<>{});
     myPrint(" == Result of Part 2: {:d} ==\n", sum2);
 
     return sum1 == 520 && sum2 == 20520794;

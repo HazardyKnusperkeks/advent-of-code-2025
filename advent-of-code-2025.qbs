@@ -5,6 +5,19 @@ Project {
 
     references: ["allWarnings.qbs"]
 
+    Product {
+        name: "eigen"
+
+        Export {
+            Depends { name: "cpp" }
+
+            version: "5.0.1"
+
+            cpp.defines: ["EIGEN_FAST_MATH=0"]
+            cpp.systemIncludePaths: [exportingProduct.sourceDirectory + "/3rdParty/eigen/"]
+        }
+    }
+
     CppApplication {
         consoleApplication: true
         files: [
@@ -44,6 +57,7 @@ Project {
 
         Depends { name: "AllWarnings" }
         Depends { name: "cpp" }
+        Depends { name: "eigen" }
 
         cpp.cxxLanguageVersion: "c++26"
         cpp.cxxFlags: ["-fconcepts-diagnostics-depth=10"]
