@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <flat_map>
+#include <flat_set>
 #include <ranges>
 #include <vector>
 
@@ -38,67 +39,189 @@ std::vector<Rectangle> calculateRectangles(const List& list) noexcept {
 }
 
 std::int64_t areaOfLargestRedAndGreenRectangle(std::span<const Rectangle> rectangles, const List& list) noexcept {
-    auto isInPolygon = [&list](Coordinate c) {
-        static std::flat_map<Coordinate, std::uint8_t> cache;
-        if ( auto iter = cache.find(c); iter != cache.end() ) {
-            return static_cast<bool>(iter->second);
-        } //if ( auto iter = cache.find(c); iter != cache.end() )
+    struct Edge {
+        Coordinate From;
+        Coordinate To;
 
-        bool ret = false;
+        constexpr auto operator<=>(const Edge& that) const noexcept = default;
+    };
 
-        for ( const auto& [a, b] :
-              std::views::concat(list, std::views::single(list.front())) | std::views::adjacent<2> ) {
-            if ( a.Row == b.Row ) {
-                const auto left  = std::min(a.Column, b.Column);
-                const auto right = std::max(a.Column, b.Column);
-                if ( c.Column >= left && c.Column <= right ) {
-                    if ( c.Row == b.Row ) {
-                        ret = true;
-                        break;
-                    } //if ( c.Row == b.Row )
-                    // ret = !ret;
-                } //if ( c.Column >= left && c.Column <= right )
-            } //if ( a.Row == b.Row )
-            else if ( a.Column == b.Column ) {
-                const auto top    = std::min(a.Row, b.Row);
-                const auto bottom = std::max(a.Row, b.Row);
-                if ( c.Row >= top && c.Row <= bottom ) {
-                    if ( c.Column == b.Column ) {
-                        ret = true;
-                        break;
-                    } //if ( c.Column == b.Column )
-                    ret = !ret;
-                } //if ( c.Row >= left && c.Row <= right )
-            } //else if ( a.Column == b.Column )
-            else {
-                const auto slope     = static_cast<double>(b.Row - a.Row) / static_cast<double>(b.Column - a.Column);
-                const auto offset    = static_cast<double>(a.Row) - slope * static_cast<double>(a.Column);
+    struct ColumnLess {
+        static bool operator()(const Edge& lhs, const Edge& rhs) noexcept {
+            return std::tie(lhs.From.Column, lhs.From.Row, lhs.To.Column, lhs.To.Row) <
+                   std::tie(rhs.From.Column, rhs.From.Row, rhs.To.Column, rhs.To.Row);
+        }
+    };
 
-                const auto onLineRow = slope * static_cast<double>(c.Column) + offset;
-                const auto top       = std::min(a.Row, b.Row);
-                const auto bottom    = std::max(a.Row, b.Row);
-                if ( onLineRow >= top && onLineRow <= bottom ) {
-                    ret = !ret;
-                } //if ( onLineRow >= top && onLineRow <= bottom )
-            } //else
-            //if ( (a.Row > c.Row) != (b.Row > c.Row) ) {
-            //    const auto slope = (c.Column - a.Column) * (b.Row - a.Row) - (b.Column - a.Column) * (c.Row - a.Row);
-            //    if ( slope == 0 ) {
-            //        ret = true;
-            //        break;
-            //    } //if ( slope == 0 )
-            //    if ( (slope < 0) != (b.Row < a.Row) ) {
-            //        ret = !ret;
-            //    } //if ( (slope < 0) != (b.Row < a.Row) )
-            //} //if ( (a.Row > c.Row) != (b.Row > c.Row) )
-        } //for ( const auto& [a, b] : list | std::views::adjacent<2> )
+    std::flat_set<Edge, ColumnLess> verticalEdges;
+    std::flat_set<Edge>             horizontalEdges;
+    std::flat_set<Coordinate>       set = list | std::ranges::to<std::flat_set>();
+
+    for ( const auto& [a, b] : std::views::concat(list, std::views::single(list.front())) | std::views::adjacent<2> ) {
+        const auto [minRow, maxRow]       = std::minmax(a.Row, b.Row);
+        const auto [minColumn, maxColumn] = std::minmax(a.Column, b.Column);
+
+        if ( minRow == maxRow ) {
+            horizontalEdges.emplace(Coordinate{.Row = minRow, .Column = minColumn}, Coordinate{minRow, maxColumn});
+        } //if ( minRow == maxRow )
+        else {
+            verticalEdges.emplace(Coordinate{.Row = minRow, .Column = minColumn}, Coordinate{maxRow, maxColumn});
+        } //else -> if ( minRow == maxRow )
+    } //for ( const auto& [a, b] : list | std::views::adjacent<2> )
+
+    auto isInInnerPolygon = [&verticalEdges, &horizontalEdges](const std::int64_t row, const std::int64_t startColumn,
+                                                               const std::int64_t endColumn, const bool firstRow) {
+        const auto horizontalEdgesOnThisRow =
+            std::ranges::equal_range(horizontalEdges, row, {}, [](const Edge& edge) noexcept { return edge.From.Row; });
+
+        std::println("R {}, C {}->{}:", row, startColumn, endColumn);
+        for ( auto edge : horizontalEdgesOnThisRow ) {
+            std::println("  Row {} => {}", edge.From, edge.To);
+        } //for ( auto edge : horizontalEdgesOnThisRow )
+
+        const auto findRow = [&horizontalEdgesOnThisRow](std::int64_t column) noexcept {
+            return std::ranges::find_if(horizontalEdgesOnThisRow, [column](const Edge& edge) noexcept {
+                return edge.From.Column <= column && column <= edge.To.Column;
+            });
+        };
+
+        const auto edgeEmbodyingStart = findRow(startColumn);
+        const auto edgeEmbodyingEnd   = findRow(endColumn);
+        const auto end                = horizontalEdgesOnThisRow.end();
+        auto       toColumn           = [](const Edge& edge) noexcept { return edge.To.Column; };
+
+        if ( edgeEmbodyingStart == edgeEmbodyingEnd && edgeEmbodyingStart != end ) {
+            //If both match, and they are the same we're done here.
+            std::println("Yas");
+            return true;
+        } //if ( edgeEmbodyingStart == edgeEmbodyingEnd && edgeEmbodyingStart != end )
+
+        if ( (edgeEmbodyingStart == end || edgeEmbodyingEnd == end) && edgeEmbodyingStart != edgeEmbodyingEnd ) {
+            const auto matching         = edgeEmbodyingStart == end ? edgeEmbodyingEnd : edgeEmbodyingStart;
+            const auto findVerticalEdge = [&verticalEdges, &toColumn](const Coordinate& c) noexcept {
+                const auto range = std::ranges::equal_range(verticalEdges, c.Column, {}, toColumn);
+                return std::ranges::find_if(range,
+                                            [c](const Edge& edge) noexcept { return edge.From == c || edge.To == c; });
+            };
+            const auto leftEdge  = findVerticalEdge(matching->From);
+            const auto rightEdge = findVerticalEdge(matching->To);
+
+            const bool isLeftUp  = leftEdge->From.Row > leftEdge->To.Row;
+            const bool isRightUp = rightEdge->From.Row > rightEdge->To.Row;
+
+            if ( firstRow && isLeftUp != isRightUp ) {
+                //First Row must have both, if there is only one Edge involved
+                std::println("First Row ney");
+                return false;
+            } //if ( firstRow && isLeftUp != isRightUp )
+
+            if ( isLeftUp == isRightUp && isLeftUp ) {
+                std::println("Row ney");
+                return false;
+            } //if ( isLeftUp == isRightUp && isLeftUp )
+        } //if ( (edgeEmbodyingStart == end || edgeEmbodyingEnd == end) && edgeEmbodyingStart != edgeEmbodyingEnd )
+
+        const auto lower_bound = std::ranges::lower_bound(verticalEdges, startColumn, {}, toColumn);
+        const auto upper_bound = std::ranges::upper_bound(lower_bound, verticalEdges.end(), endColumn, {}, toColumn);
+
+        for ( auto iter = lower_bound; iter != upper_bound; ++iter ) {
+            std::println("  Col {} => {}", iter->From, iter->To);
+            if ( iter->From.Row < row && row < iter->To.Row ) {
+                std::println("Ney");
+                return false;
+            } //if ( iter->From.Row < row && row < iter->To.Row )
+        } //for ( auto iter = lower_bound; iter != upper_bound; ++iter )
+
+        std::println("Fallback yas");
+        return true;
+        /*
+
+        while ( c.Column >= 0 ) {
+            //auto nextHorizontalEdge = std::ranges::lower_bound(horizontalEdgesOnThisRow, c.Column, {}, toColumn);
+            //if ( nextHorizontalEdge == horizontalEdgesOnThisRow.end() || nextHorizontalEdge->From.Column > c.Column )
+            //{
+            //    //No horizontal edges on our way anymore.
+            //    break;
+            //} //if ( nextHorizontalEdge == horizontalEdgesOnThisRow.end() || nextHorizontalEdge->From.Column >
+            //c.Column)
+
+            const auto horizontalEdgeBound = std::ranges::upper_bound(horizontalEdgesOnThisRow, c.Column, {}, toColumn);
+            if ( horizontalEdgeBound == horizontalEdgesOnThisRow.begin() ) {
+                //No horizontal edges on our way anymore.
+                break;
+            } //if ( horizontalEdgeBound == horizontalEdgesOnThisRow.begin() )
+
+            const auto rend = std::reverse_iterator{horizontalEdgesOnThisRow.begin()};
+            std::println("Edges: ");
+            for ( auto iter = std::reverse_iterator{horizontalEdgeBound}; iter != rend; ++iter ) {
+                std::println("  {} -> {}", iter->From, iter->To);
+            }
+            const auto nextHorizontalEdge =
+                std::ranges::find_if(std::reverse_iterator{horizontalEdgeBound}, rend, [&c](const Edge& edge) {
+                    std::println("Check Edge {} -> {}", edge.From, edge.To);
+                    throwIfInvalid(edge.From.Row == c.Row);
+                    return edge.From.Column <= c.Column;
+                });
+
+            myFlush();
+            if ( nextHorizontalEdge == rend ) {
+                //No horizontal edges on our way anymore.
+                break;
+            } //if ( nextHorizontalEdge == rend )
+
+            const auto& horizontalEdge    = *nextHorizontalEdge;
+            bool        skipHorizontal    = false;
+            const auto  verticalEdgeBound = std::ranges::upper_bound(verticalEdges, c.Column, {}, toColumn);
+            if ( verticalEdgeBound != verticalEdges.begin() ) {
+                auto* verticalEdge = &*std::prev(verticalEdgeBound);
+                for ( std::reverse_iterator iter{verticalEdgeBound};
+                      iter != verticalEdges.rend() && iter->From.Column > nextHorizontalEdge->From.Column;
+                      ++iter, --verticalEdge ) {
+                    if ( iter->From.Row <= c.Row && c.Row <= iter->To.Row /*&&
+                         (iter->From.Row > nextHorizontalEdge->From.Row ||
+                          nextHorizontalEdge->From.Row > iter->To.Row)* ) {
+                        skipHorizontal = skipHorizontal || false;
+                        if ( iter->From == nextHorizontalEdge->From || iter->From == nextHorizontalEdge->To ||
+                             iter->To == nextHorizontalEdge->From || iter->To == nextHorizontalEdge->To ) {
+                            myFlush();
+                            skipHorizontal = true;
+                        }
+                        ret      = !ret;
+                        c.Column = iter->From.Column - 1;
+                    } //if ( iter->From.Row <= c.Row && c.Row <= iter->To.Row )
+                } //for
+            } //if ( verticalEdgeBound != verticalEdges.begin() )
+            if ( !skipHorizontal ) {
+                ret      = !ret;
+                c.Column = nextHorizontalEdge->From.Column - 1;
+            } //if ( !skipHorizontal )
+        } //while ( c.Column >= 0 )
+
+        if ( c.Column >= 0 ) {
+            const auto verticalEdgeBound = std::ranges::upper_bound(verticalEdges, c.Column, {}, toColumn);
+            if ( verticalEdgeBound != verticalEdges.begin() ) {
+                for ( std::reverse_iterator iter{verticalEdgeBound}; iter != verticalEdges.rend(); ++iter ) {
+                    if ( iter->From.Row <= c.Row && c.Row <= iter->To.Row ) {
+                        ret      = !ret;
+                        c.Column = iter->From.Column - 1;
+                    } //if ( iter->From.Row <= c.Row && c.Row <= iter->To.Row )
+                } //for ( std::reverse_iterator iter{std::prev(verticalEdge)}; iter != verticalEdges.rend(); ++iter )
+            } //if ( verticalEdgeBound != verticalEdges.begin() )
+        } //if ( c.Column >= 0 )
 
         cache.emplace(c, ret);
-        return ret;
+        return ret;*/
     };
-    auto isValidRedAndGreen = [&isInPolygon](const Rectangle& rectangle) {
-        return isInPolygon({rectangle.C1.Row, rectangle.C2.Column}) &&
-               isInPolygon({rectangle.C2.Row, rectangle.C1.Column});
+    auto isValidRedAndGreen = [&isInInnerPolygon](const Rectangle& rectangle) {
+        const auto [minRow, maxRow]       = std::ranges::minmax(rectangle.C1.Row, rectangle.C2.Row);
+        const auto [minColumn, maxColumn] = std::ranges::minmax(rectangle.C1.Column, rectangle.C2.Column);
+
+        std::println("\n\nNext {} -> {} / {} -> {} A: {}", minRow, maxRow, minColumn, maxColumn, rectangle.Area);
+        return std::ranges::all_of(
+            std::views::iota(minRow, maxRow + 1),
+            [minColumn, maxColumn, &isInInnerPolygon, firstRow = true](std::int64_t row) mutable noexcept {
+                return isInInnerPolygon(row, minColumn, maxColumn, std::exchange(firstRow, false));
+            });
     };
     return std::ranges::find_if(rectangles, isValidRedAndGreen)->Area;
 }
