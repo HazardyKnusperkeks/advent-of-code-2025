@@ -4,7 +4,6 @@
 #include "print.hpp"
 
 #include <algorithm>
-#include <flat_map>
 #include <flat_set>
 #include <ranges>
 #include <vector>
@@ -23,7 +22,7 @@ List parse(std::span<const std::string_view> input) {
     return input | std::views::transform([](std::string_view line) {
                const auto comma = line.find(',');
                throwIfInvalid(comma != std::string_view::npos);
-               return Coordinate{convert(line.substr(comma + 1)), convert(line.substr(0, comma))};
+               return Coordinate{.Row = convert(line.substr(comma + 1)), .Column = convert(line.substr(0, comma))};
            }) |
            std::ranges::to<std::vector>();
 }
@@ -31,14 +30,19 @@ List parse(std::span<const std::string_view> input) {
 std::vector<Rectangle> calculateRectangles(const List& list) noexcept {
     auto calcArea = [](const std::tuple<Coordinate, Coordinate>& tuple) noexcept {
         auto [c1, c2] = tuple;
-        return Rectangle{c1, c2, (std::abs(c1.Row - c2.Row) + 1) * (std::abs(c1.Column - c2.Column) + 1)};
+        if ( c2.Row < c1.Row ) {
+            std::swap(c1, c2);
+        } //if ( c2.Row < c1.Row )
+        return Rectangle{.C1   = c1,
+                         .C2   = c2,
+                         .Area = (std::abs(c1.Row - c2.Row) + 1) * (std::abs(c1.Column - c2.Column) + 1)};
     };
     auto ret = symmetricCartesianProduct(list) | std::views::transform(calcArea) | std::ranges::to<std::vector>();
     std::ranges::sort(ret, std::ranges::greater{}, &Rectangle::Area);
     return ret;
 }
 
-std::int64_t areaOfLargestRedAndGreenRectangle(std::span<const Rectangle> rectangles, const List& list) noexcept {
+std::int64_t areaOfLargestRedAndGreenRectangle(std::span<const Rectangle> rectangles, const List& list) {
     struct Edge {
         Coordinate From;
         Coordinate To;
@@ -55,173 +59,432 @@ std::int64_t areaOfLargestRedAndGreenRectangle(std::span<const Rectangle> rectan
 
     std::flat_set<Edge, ColumnLess> verticalEdges;
     std::flat_set<Edge>             horizontalEdges;
-    std::flat_set<Coordinate>       set = list | std::ranges::to<std::flat_set>();
 
     for ( const auto& [a, b] : std::views::concat(list, std::views::single(list.front())) | std::views::adjacent<2> ) {
         const auto [minRow, maxRow]       = std::minmax(a.Row, b.Row);
         const auto [minColumn, maxColumn] = std::minmax(a.Column, b.Column);
+        const Edge edge{.From = Coordinate{.Row = minRow, .Column = minColumn},
+                        .To   = Coordinate{.Row = maxRow, .Column = maxColumn}};
 
         if ( minRow == maxRow ) {
-            horizontalEdges.emplace(Coordinate{.Row = minRow, .Column = minColumn}, Coordinate{minRow, maxColumn});
+            horizontalEdges.emplace(edge);
         } //if ( minRow == maxRow )
         else {
-            verticalEdges.emplace(Coordinate{.Row = minRow, .Column = minColumn}, Coordinate{maxRow, maxColumn});
+            verticalEdges.emplace(edge);
         } //else -> if ( minRow == maxRow )
     } //for ( const auto& [a, b] : list | std::views::adjacent<2> )
 
-    auto isInInnerPolygon = [&verticalEdges, &horizontalEdges](const std::int64_t row, const std::int64_t startColumn,
-                                                               const std::int64_t endColumn, const bool firstRow) {
-        const auto horizontalEdgesOnThisRow =
-            std::ranges::equal_range(horizontalEdges, row, {}, [](const Edge& edge) noexcept { return edge.From.Row; });
+    const auto toFromRow    = [](const Edge& edge) noexcept { return edge.From.Row; };
+    const auto toFromColumn = [](const Edge& edge) noexcept { return edge.From.Column; };
+    const auto toToColumn   = [](const Edge& edge) noexcept { return edge.To.Column; };
+    const auto toToRow      = [](const Edge& edge) noexcept { return edge.To.Row; };
 
-        std::println("R {}, C {}->{}:", row, startColumn, endColumn);
-        for ( auto edge : horizontalEdgesOnThisRow ) {
-            std::println("  Row {} => {}", edge.From, edge.To);
-        } //for ( auto edge : horizontalEdgesOnThisRow )
+    const auto hits         = [](const Coordinate& c) noexcept {
+        return [c](const Edge& edge) noexcept { return edge.From == c || edge.To == c; };
+    };
 
-        const auto findRow = [&horizontalEdgesOnThisRow](std::int64_t column) noexcept {
-            return std::ranges::find_if(horizontalEdgesOnThisRow, [column](const Edge& edge) noexcept {
-                return edge.From.Column <= column && column <= edge.To.Column;
+    auto checkLeftToRight = [&horizontalEdges, &verticalEdges, &toFromRow, &toFromColumn,
+                             &hits](const std::int64_t row, std::int64_t left, const std::int64_t right,
+                                    const bool topAllowed, const std::int64_t rowLimit) {
+        const auto edgesOnThisRow         = std::ranges::equal_range(horizontalEdges, row, {}, toFromRow);
+        const auto lowerBoundCuttingEdges = std::ranges::upper_bound(verticalEdges, left, {}, toFromColumn);
+        const auto upperBoundCuttingEdges =
+            std::ranges::lower_bound(lowerBoundCuttingEdges, verticalEdges.end(), right, {}, toFromColumn);
+
+        auto       horizontalEdge     = std::ranges::lower_bound(edgesOnThisRow, left, {}, toFromColumn);
+        const auto horizontalEnd      = edgesOnThisRow.end();
+        auto       verticalEdge       = lowerBoundCuttingEdges;
+        const auto verticalEnd        = upperBoundCuttingEdges;
+        bool       firstEdge          = true;
+        bool       checkForTopAllowed = false;
+
+        if ( horizontalEdge->From.Row != row ) {
+            //Shouldn't have looked for toFromColumn, but toToColumn, adapt manually, this is O(1).
+            --horizontalEdge;
+            checkForTopAllowed = true;
+            throwIfInvalid(horizontalEdge->From.Row == row);
+        } //if ( horizontalEdge->From.Row != row )
+
+        const auto advanceVertical = [&verticalEdge, &verticalEnd, row](std::int64_t column) noexcept {
+            verticalEdge = std::ranges::find_if(verticalEdge, verticalEnd, [row, column](const Edge& edge) noexcept {
+                return edge.From.Row <= row && row <= edge.To.Row && edge.From.Column >= column;
             });
+            return;
         };
 
-        const auto edgeEmbodyingStart = findRow(startColumn);
-        const auto edgeEmbodyingEnd   = findRow(endColumn);
-        const auto end                = horizontalEdgesOnThisRow.end();
-        auto       toColumn           = [](const Edge& edge) noexcept { return edge.To.Column; };
+        advanceVertical(left);
 
-        if ( edgeEmbodyingStart == edgeEmbodyingEnd && edgeEmbodyingStart != end ) {
-            //If both match, and they are the same we're done here.
-            std::println("Yas");
-            return true;
-        } //if ( edgeEmbodyingStart == edgeEmbodyingEnd && edgeEmbodyingStart != end )
-
-        if ( (edgeEmbodyingStart == end || edgeEmbodyingEnd == end) && edgeEmbodyingStart != edgeEmbodyingEnd ) {
-            const auto matching         = edgeEmbodyingStart == end ? edgeEmbodyingEnd : edgeEmbodyingStart;
-            const auto findVerticalEdge = [&verticalEdges, &toColumn](const Coordinate& c) noexcept {
-                const auto range = std::ranges::equal_range(verticalEdges, c.Column, {}, toColumn);
-                return std::ranges::find_if(range,
-                                            [c](const Edge& edge) noexcept { return edge.From == c || edge.To == c; });
-            };
-            const auto leftEdge  = findVerticalEdge(matching->From);
-            const auto rightEdge = findVerticalEdge(matching->To);
-
-            const bool isLeftUp  = leftEdge->From.Row > leftEdge->To.Row;
-            const bool isRightUp = rightEdge->From.Row > rightEdge->To.Row;
-
-            if ( firstRow && isLeftUp != isRightUp ) {
-                //First Row must have both, if there is only one Edge involved
-                std::println("First Row ney");
+        while ( left < right ) {
+            if ( verticalEdge != verticalEnd && verticalEdge->From.Column < horizontalEdge->From.Column ) {
+                //Crossing a vertical Edge -> Instant disquallify.
                 return false;
-            } //if ( firstRow && isLeftUp != isRightUp )
+            } //if ( verticalEdge != verticalEnd && verticalEdge->From.Column < horizontalEdge->From.Column )
 
-            if ( isLeftUp == isRightUp && isLeftUp ) {
-                std::println("Row ney");
-                return false;
-            } //if ( isLeftUp == isRightUp && isLeftUp )
-        } //if ( (edgeEmbodyingStart == end || edgeEmbodyingEnd == end) && edgeEmbodyingStart != edgeEmbodyingEnd )
+            if ( horizontalEdge->From.Column <= right && right <= horizontalEdge->To.Column ) {
+                //The end is on an edge, this is in the loop.
+                return true;
+            } //if ( horizontalEdge->From.Column <= right && right <= horizontalEdge->To.Column )
 
-        const auto lower_bound = std::ranges::lower_bound(verticalEdges, startColumn, {}, toColumn);
-        const auto upper_bound = std::ranges::upper_bound(lower_bound, verticalEdges.end(), endColumn, {}, toColumn);
+            if ( firstEdge ) {
+                firstEdge                = false;
 
-        for ( auto iter = lower_bound; iter != upper_bound; ++iter ) {
-            std::println("  Col {} => {}", iter->From, iter->To);
-            if ( iter->From.Row < row && row < iter->To.Row ) {
-                std::println("Ney");
-                return false;
-            } //if ( iter->From.Row < row && row < iter->To.Row )
-        } //for ( auto iter = lower_bound; iter != upper_bound; ++iter )
+                const auto leftVertical  = std::ranges::find_if(verticalEdges, hits(horizontalEdge->From));
+                const auto rightVertical = std::ranges::find_if(verticalEdges, hits(horizontalEdge->To));
 
-        std::println("Fallback yas");
+                const auto leftGoesUp    = leftVertical->From.Row < horizontalEdge->From.Row;
+                const auto rightGoesUp   = rightVertical->From.Row < horizontalEdge->To.Row;
+
+                if ( checkForTopAllowed ) {
+                    if ( rightGoesUp != topAllowed ) {
+                        const auto otherSide = (rightGoesUp ? rightVertical->From : rightVertical->To).Row;
+                        if ( (!topAllowed && otherSide > rowLimit) || (topAllowed && otherSide < rowLimit) ) {
+                            return false;
+                        } //if ( (!topAllowed && otherSide > rowLimit) || (topAllowed && otherSide < rowLimit) )
+                    } //if ( bottomGoesLeft == topAllowed )
+                } //if ( checkForTopAllowed )
+                else {
+                    if ( leftGoesUp == rightGoesUp ) {
+                        //The Target isn't on the starting Edge and it's not a step, thus we leave the loop.
+                        return false;
+                    } //if ( leftGoesUp == rightGoesUp )
+
+                } //else -> if ( checkForTopAllowed )
+            } //if ( firstEdge )
+
+            const auto leftVertical  = std::ranges::find_if(verticalEdge, verticalEnd, hits(horizontalEdge->From));
+            const auto rightVertical = std::ranges::find_if(leftVertical, verticalEnd, hits(horizontalEdge->To));
+
+            if ( leftVertical != verticalEnd ) {
+                throwIfInvalid(rightVertical != verticalEnd);
+                const auto leftGoesUp  = leftVertical->From.Row < horizontalEdge->From.Row;
+                const auto rightGoesUp = rightVertical->From.Row < horizontalEdge->To.Row;
+
+                if ( leftGoesUp != rightGoesUp ) {
+                    //Hit an edge which is just a step, one side of that is outside the loop.
+                    return false;
+                } //if ( leftGoesUp != rightGoesUp )
+            } //if ( leftVertical != verticalEnd )
+
+            left = horizontalEdge->To.Column + 1;
+            ++horizontalEdge;
+            advanceVertical(left);
+
+            if ( horizontalEdge == horizontalEnd || horizontalEdge->From.Row != row ) {
+                //No edges on this available anymore, only check the vertical ones.
+                return verticalEdge == verticalEnd;
+            } //if ( horizontalEdge == horizontalEnd || horizontalEdge->From.Row != row )
+        } //while ( left < right )
+
         return true;
-        /*
-
-        while ( c.Column >= 0 ) {
-            //auto nextHorizontalEdge = std::ranges::lower_bound(horizontalEdgesOnThisRow, c.Column, {}, toColumn);
-            //if ( nextHorizontalEdge == horizontalEdgesOnThisRow.end() || nextHorizontalEdge->From.Column > c.Column )
-            //{
-            //    //No horizontal edges on our way anymore.
-            //    break;
-            //} //if ( nextHorizontalEdge == horizontalEdgesOnThisRow.end() || nextHorizontalEdge->From.Column >
-            //c.Column)
-
-            const auto horizontalEdgeBound = std::ranges::upper_bound(horizontalEdgesOnThisRow, c.Column, {}, toColumn);
-            if ( horizontalEdgeBound == horizontalEdgesOnThisRow.begin() ) {
-                //No horizontal edges on our way anymore.
-                break;
-            } //if ( horizontalEdgeBound == horizontalEdgesOnThisRow.begin() )
-
-            const auto rend = std::reverse_iterator{horizontalEdgesOnThisRow.begin()};
-            std::println("Edges: ");
-            for ( auto iter = std::reverse_iterator{horizontalEdgeBound}; iter != rend; ++iter ) {
-                std::println("  {} -> {}", iter->From, iter->To);
-            }
-            const auto nextHorizontalEdge =
-                std::ranges::find_if(std::reverse_iterator{horizontalEdgeBound}, rend, [&c](const Edge& edge) {
-                    std::println("Check Edge {} -> {}", edge.From, edge.To);
-                    throwIfInvalid(edge.From.Row == c.Row);
-                    return edge.From.Column <= c.Column;
-                });
-
-            myFlush();
-            if ( nextHorizontalEdge == rend ) {
-                //No horizontal edges on our way anymore.
-                break;
-            } //if ( nextHorizontalEdge == rend )
-
-            const auto& horizontalEdge    = *nextHorizontalEdge;
-            bool        skipHorizontal    = false;
-            const auto  verticalEdgeBound = std::ranges::upper_bound(verticalEdges, c.Column, {}, toColumn);
-            if ( verticalEdgeBound != verticalEdges.begin() ) {
-                auto* verticalEdge = &*std::prev(verticalEdgeBound);
-                for ( std::reverse_iterator iter{verticalEdgeBound};
-                      iter != verticalEdges.rend() && iter->From.Column > nextHorizontalEdge->From.Column;
-                      ++iter, --verticalEdge ) {
-                    if ( iter->From.Row <= c.Row && c.Row <= iter->To.Row /*&&
-                         (iter->From.Row > nextHorizontalEdge->From.Row ||
-                          nextHorizontalEdge->From.Row > iter->To.Row)* ) {
-                        skipHorizontal = skipHorizontal || false;
-                        if ( iter->From == nextHorizontalEdge->From || iter->From == nextHorizontalEdge->To ||
-                             iter->To == nextHorizontalEdge->From || iter->To == nextHorizontalEdge->To ) {
-                            myFlush();
-                            skipHorizontal = true;
-                        }
-                        ret      = !ret;
-                        c.Column = iter->From.Column - 1;
-                    } //if ( iter->From.Row <= c.Row && c.Row <= iter->To.Row )
-                } //for
-            } //if ( verticalEdgeBound != verticalEdges.begin() )
-            if ( !skipHorizontal ) {
-                ret      = !ret;
-                c.Column = nextHorizontalEdge->From.Column - 1;
-            } //if ( !skipHorizontal )
-        } //while ( c.Column >= 0 )
-
-        if ( c.Column >= 0 ) {
-            const auto verticalEdgeBound = std::ranges::upper_bound(verticalEdges, c.Column, {}, toColumn);
-            if ( verticalEdgeBound != verticalEdges.begin() ) {
-                for ( std::reverse_iterator iter{verticalEdgeBound}; iter != verticalEdges.rend(); ++iter ) {
-                    if ( iter->From.Row <= c.Row && c.Row <= iter->To.Row ) {
-                        ret      = !ret;
-                        c.Column = iter->From.Column - 1;
-                    } //if ( iter->From.Row <= c.Row && c.Row <= iter->To.Row )
-                } //for ( std::reverse_iterator iter{std::prev(verticalEdge)}; iter != verticalEdges.rend(); ++iter )
-            } //if ( verticalEdgeBound != verticalEdges.begin() )
-        } //if ( c.Column >= 0 )
-
-        cache.emplace(c, ret);
-        return ret;*/
     };
-    auto isValidRedAndGreen = [&isInInnerPolygon](const Rectangle& rectangle) {
-        const auto [minRow, maxRow]       = std::ranges::minmax(rectangle.C1.Row, rectangle.C2.Row);
-        const auto [minColumn, maxColumn] = std::ranges::minmax(rectangle.C1.Column, rectangle.C2.Column);
 
-        std::println("\n\nNext {} -> {} / {} -> {} A: {}", minRow, maxRow, minColumn, maxColumn, rectangle.Area);
-        return std::ranges::all_of(
-            std::views::iota(minRow, maxRow + 1),
-            [minColumn, maxColumn, &isInInnerPolygon, firstRow = true](std::int64_t row) mutable noexcept {
-                return isInInnerPolygon(row, minColumn, maxColumn, std::exchange(firstRow, false));
+    auto checkRightToLeft = [&horizontalEdges, &verticalEdges, &toFromRow, &toFromColumn, &toToColumn,
+                             &hits](const std::int64_t row, std::int64_t right, const std::int64_t left,
+                                    const bool bottomAllowed, const std::int64_t rowLimit) {
+        const auto edgesOnThisRow = std::ranges::equal_range(horizontalEdges, row, {}, toFromRow) | std::views::reverse;
+        const auto lowerBoundCuttingEdges = std::ranges::upper_bound(verticalEdges, left, {}, toFromColumn);
+        const auto upperBoundCuttingEdges =
+            std::ranges::lower_bound(lowerBoundCuttingEdges, verticalEdges.end(), right, {}, toFromColumn);
+
+        auto       horizontalEdge        = std::ranges::lower_bound(edgesOnThisRow, right, {}, toToColumn);
+        const auto horizontalEnd         = edgesOnThisRow.end();
+        auto       verticalEdge          = std::reverse_iterator{upperBoundCuttingEdges};
+        const auto verticalEnd           = std::reverse_iterator{lowerBoundCuttingEdges};
+        bool       firstEdge             = true;
+        bool       checkForBottomAllowed = false;
+
+        if ( horizontalEdge->From.Row != row ) {
+            //Shouldn't have looked for toToColumn, but toFromColumn, adapt manually, this is O(1).
+            --horizontalEdge;
+            checkForBottomAllowed = true;
+            throwIfInvalid(horizontalEdge->From.Row == row);
+        } //if ( horizontalEdge->From.Row != row )
+
+        const auto advanceVertical = [&verticalEdge, &verticalEnd, row](std::int64_t column) noexcept {
+            verticalEdge = std::ranges::find_if(verticalEdge, verticalEnd, [row, column](const Edge& edge) noexcept {
+                return edge.From.Row <= row && row <= edge.To.Row && edge.From.Column <= column;
             });
+            return;
+        };
+
+        advanceVertical(right);
+
+        while ( right > left ) {
+            if ( verticalEdge != verticalEnd && verticalEdge->From.Column > horizontalEdge->From.Column ) {
+                //Crossing a vertical Edge -> Instant disquallify.
+                return false;
+            } //if ( verticalEdge != verticalEnd && verticalEdge->From.Column > horizontalEdge->From.Column )
+
+            if ( horizontalEdge->From.Column <= left && left <= horizontalEdge->To.Column ) {
+                //The end is on an edge, this is in the loop.
+                return true;
+            } //if ( horizontalEdge->From.Column <= left && left <= horizontalEdge->To.Column )
+
+            if ( firstEdge ) {
+                firstEdge                = false;
+
+                const auto leftVertical  = std::ranges::find_if(verticalEdges, hits(horizontalEdge->From));
+                const auto rightVertical = std::ranges::find_if(verticalEdges, hits(horizontalEdge->To));
+
+                const auto leftGoesUp    = leftVertical->From.Row < horizontalEdge->From.Row;
+                const auto rightGoesUp   = rightVertical->From.Row < horizontalEdge->To.Row;
+
+                if ( checkForBottomAllowed ) {
+                    if ( rightGoesUp == bottomAllowed ) {
+                        const auto otherSide = (rightGoesUp ? rightVertical->From : rightVertical->To).Row;
+                        if ( (!bottomAllowed && otherSide > rowLimit) || (bottomAllowed && otherSide < rowLimit) ) {
+                            return false;
+                        } //if ( (!bottomAllowed && otherSide > rowLimit) || (bottomAllowed && otherSide < rowLimit) )
+                    } //if ( rightGoesUp == bottomAllowed )
+                } //if ( checkForBottomAllowed )
+                else {
+                    if ( leftGoesUp == rightGoesUp ) {
+                        //The Target isn't on the starting Edge and it's not a step, thus we leave the loop.
+                        return false;
+                    } //if ( leftGoesUp == rightGoesUp )
+                } //else -> if ( checkForBottomAllowed )
+            } //if ( firstEdge )
+
+            const auto rightVertical = std::ranges::find_if(verticalEdge, verticalEnd, hits(horizontalEdge->To));
+            const auto leftVertical  = std::ranges::find_if(rightVertical, verticalEnd, hits(horizontalEdge->From));
+
+            if ( leftVertical != verticalEnd ) {
+                throwIfInvalid(rightVertical != verticalEnd);
+                const auto leftGoesUp  = leftVertical->From.Row < horizontalEdge->From.Row;
+                const auto rightGoesUp = rightVertical->From.Row < horizontalEdge->To.Row;
+
+                if ( leftGoesUp != rightGoesUp ) {
+                    //Hit an edge which is just a step, one side of that is outside the loop.
+                    return false;
+                } //if ( leftGoesUp != rightGoesUp )
+            } //if ( leftVertical != verticalEnd )
+
+            right = horizontalEdge->From.Column - 1;
+            ++horizontalEdge;
+            advanceVertical(right);
+
+            if ( horizontalEdge == horizontalEnd || horizontalEdge->From.Row != row ) {
+                //No edges on this available anymore, only check the vertical ones.
+                return verticalEdge == verticalEnd;
+            } //if ( horizontalEdge == horizontalEnd || horizontalEdge->From.Row != row )
+        } //while ( right > left )
+
+        return true;
+    };
+
+    auto checkTopToBottom = [&horizontalEdges, &verticalEdges, &toFromRow, &toFromColumn,
+                             &hits](const std::int64_t column, std::int64_t top, const std::int64_t bottom,
+                                    const bool leftAllowed, const std::int64_t columnLimit) {
+        const auto edgesOnThisColumn      = std::ranges::equal_range(verticalEdges, column, {}, toFromColumn);
+        const auto lowerBoundCuttingEdges = std::ranges::upper_bound(horizontalEdges, top, {}, toFromRow);
+        const auto upperBoundCuttingEdges =
+            std::ranges::lower_bound(lowerBoundCuttingEdges, horizontalEdges.end(), bottom, {}, toFromRow);
+
+        auto       verticalEdge        = std::ranges::lower_bound(edgesOnThisColumn, top, {}, toFromRow);
+        const auto verticalEnd         = edgesOnThisColumn.end();
+        auto       horizontalEdge      = lowerBoundCuttingEdges;
+        const auto horizontalEnd       = upperBoundCuttingEdges;
+        bool       firstEdge           = true;
+        bool       checkForLeftAllowed = false;
+
+        if ( verticalEdge == verticalEnd || verticalEdge->From.Column != column ) {
+            //Shouldn't have looked for toFromRow, but toToRow, adapt manually, this is O(1).
+            --verticalEdge;
+            checkForLeftAllowed = true;
+            throwIfInvalid(verticalEdge->From.Column == column);
+        } //if ( verticalEdge == verticalEnd || verticalEdge->From.Column != column )
+
+        const auto advanceHorizontal = [&horizontalEdge, &horizontalEnd, column](std::int64_t row) noexcept {
+            horizontalEdge =
+                std::ranges::find_if(horizontalEdge, horizontalEnd, [row, column](const Edge& edge) noexcept {
+                    return edge.From.Column < column && column < edge.To.Column && edge.From.Row >= row;
+                });
+            return;
+        };
+
+        advanceHorizontal(top);
+
+        while ( top < bottom ) {
+            if ( horizontalEdge != horizontalEnd && horizontalEdge->From.Row < verticalEdge->From.Row ) {
+                //Crossing a vertical Edge -> Instant disquallify.
+                return false;
+            } //if ( horizontalEdge != horizontalEnd && horizontalEdge->From.Row < verticalEdge->From.Row )
+
+            if ( verticalEdge->From.Row <= bottom && bottom <= verticalEdge->To.Row ) {
+                //The end is on an edge, this is in the loop.
+                return true;
+            } //if ( verticalEdge->From.Row <= bottom && bottom <= verticalEdge->To.Row )
+
+            if ( firstEdge ) {
+                firstEdge                   = false;
+
+                const auto topHorizontal    = std::ranges::find_if(horizontalEdges, hits(verticalEdge->From));
+                const auto bottomHorizontal = std::ranges::find_if(horizontalEdges, hits(verticalEdge->To));
+
+                const auto topGoesLeft      = topHorizontal->From.Column < verticalEdge->From.Column;
+                const auto bottomGoesLeft   = bottomHorizontal->From.Column < verticalEdge->To.Column;
+
+                if ( checkForLeftAllowed ) {
+                    if ( bottomGoesLeft != leftAllowed ) {
+                        const auto otherSide = (bottomGoesLeft ? bottomHorizontal->From : bottomHorizontal->To).Column;
+                        if ( (!leftAllowed && otherSide > columnLimit) || (leftAllowed && otherSide < columnLimit) ) {
+                            return false;
+                        } //if ( (!leftAllowed && otherSide > columnLimit) || (leftAllowed && otherSide < columnLimit) )
+                    } //if ( bottomGoesLeft != leftAllowed )
+                } //if ( checkForLeftAllowed )
+                else {
+                    if ( topGoesLeft == bottomGoesLeft ) {
+                        //The Target isn't on the starting Edge and it's not a step, thus we leave the loop.
+                        return false;
+                    } //if ( topGoesLeft == bottomGoesLeft )
+                } //else -> if ( checkForLeftAllowed )
+            } //if ( firstEdge )
+
+            const auto topHorizontal    = std::ranges::find_if(horizontalEdge, horizontalEnd, hits(verticalEdge->From));
+            const auto bottomHorizontal = std::ranges::find_if(topHorizontal, horizontalEnd, hits(verticalEdge->To));
+
+            if ( topHorizontal != bottomHorizontal ) {
+                throwIfInvalid(topHorizontal != verticalEnd);
+                const auto topGoesLeft    = topHorizontal->From.Column < horizontalEdge->From.Column;
+                const auto bottomGoesLeft = bottomHorizontal->From.Column < horizontalEdge->To.Column;
+
+                if ( topGoesLeft != bottomGoesLeft ) {
+                    //Hit an edge which is just a step, one side of that is outside the loop.
+                    return false;
+                } //if ( topGoesLeft != bottomGoesLeft )
+            } //if ( topHorizontal != bottomHorizontal )
+
+            top = verticalEdge->To.Row + 1;
+            ++verticalEdge;
+            advanceHorizontal(top);
+
+            if ( verticalEdge == verticalEnd || verticalEdge->From.Column != column ) {
+                //No edges on this available anymore, only check the vertical ones.
+                return horizontalEdge == horizontalEnd;
+            } //if ( verticalEdge == verticalEnd || verticalEdge->From.Column != column )
+        } //while ( top < bottom )
+
+        return true;
+    };
+
+    auto checkBottomToTop = [&horizontalEdges, &verticalEdges, &toFromRow, &toFromColumn, &toToRow,
+                             &hits](const std::int64_t column, std::int64_t bottom, const std::int64_t top,
+                                    const bool rightAllowed, const std::int64_t columnLimit) {
+        const auto edgesOnThisRow =
+            std::ranges::equal_range(verticalEdges, column, {}, toFromColumn) | std::views::reverse;
+        const auto lowerBoundCuttingEdges = std::ranges::upper_bound(horizontalEdges, top, {}, toFromRow);
+        const auto upperBoundCuttingEdges =
+            std::ranges::lower_bound(lowerBoundCuttingEdges, horizontalEdges.end(), bottom, {}, toFromRow);
+
+        auto       verticalEdge         = std::ranges::lower_bound(edgesOnThisRow, top, {}, toToRow);
+        const auto verticalEnd          = edgesOnThisRow.end();
+        auto       horizontalEdge       = std::reverse_iterator{upperBoundCuttingEdges};
+        const auto horizontalEnd        = std::reverse_iterator{lowerBoundCuttingEdges};
+        bool       firstEdge            = true;
+        bool       checkForRightAllowed = false;
+
+        if ( verticalEdge->From.Column != column ) {
+            //Shouldn't have looked for toToRow, but toFromRow, adapt manually, this is O(1).
+            --verticalEdge;
+            checkForRightAllowed = true;
+            throwIfInvalid(verticalEdge->From.Column == column);
+        } //if ( verticalEdge->From.Column != column )
+
+        const auto advanceHorizontal = [&horizontalEdge, &horizontalEnd, column](std::int64_t row) noexcept {
+            horizontalEdge =
+                std::ranges::find_if(horizontalEdge, horizontalEnd, [row, column](const Edge& edge) noexcept {
+                    return edge.From.Column <= column && column <= edge.To.Column && edge.From.Row <= row;
+                });
+            return;
+        };
+
+        advanceHorizontal(bottom);
+
+        while ( bottom > top ) {
+            if ( horizontalEdge != horizontalEnd && horizontalEdge->From.Row > verticalEdge->To.Row ) {
+                //Crossing a vertical Edge -> Instant disquallify.
+                return false;
+            } //if ( horizontalEdge != horizontalEnd && horizontalEdge->From.Row > verticalEdge->To.Row )
+
+            if ( verticalEdge->From.Row <= top && top <= verticalEdge->To.Row ) {
+                //The end is on an edge, this is in the loop.
+                return true;
+            } //if ( verticalEdge->From.Row <= top && top <= verticalEdge->To.Row )
+
+            if ( firstEdge ) {
+                firstEdge                   = false;
+
+                const auto topHorizontal    = std::ranges::find_if(horizontalEdges, hits(verticalEdge->From));
+                const auto bottomHorizontal = std::ranges::find_if(horizontalEdges, hits(verticalEdge->To));
+
+                const auto topGoesLeft      = topHorizontal->From.Column < verticalEdge->From.Column;
+                const auto bottomGoesLeft   = bottomHorizontal->From.Column < verticalEdge->To.Column;
+
+                if ( checkForRightAllowed ) {
+                    if ( bottomGoesLeft == rightAllowed ) {
+                        const auto otherSide = (bottomGoesLeft ? bottomHorizontal->From : bottomHorizontal->To).Column;
+                        if ( (!rightAllowed && otherSide > columnLimit) || (rightAllowed && otherSide < columnLimit) ) {
+                            return false;
+                        } //if ( (!rightAllowed && otherSide > columnLimit) || (rightAllowed && otherSide < columnLimit)
+                          //)
+                    } //if ( bottomGoesLeft != leftAllowed )
+                } //if ( checkForRightAllowed )
+                else {
+                    if ( topGoesLeft == bottomGoesLeft ) {
+                        //The Target isn't on the starting Edge and it's not a step, thus we leave the loop.
+                        return false;
+                    } //if ( topGoesLeft == bottomGoesLeft )
+                } //else -> if ( checkForRightAllowed )
+            } //if ( firstEdge )
+
+            const auto bottomHorizontal = std::ranges::find_if(horizontalEdge, horizontalEnd, hits(verticalEdge->To));
+            const auto topHorizontal = std::ranges::find_if(bottomHorizontal, horizontalEnd, hits(verticalEdge->From));
+
+            if ( topHorizontal != horizontalEnd ) {
+                throwIfInvalid(bottomHorizontal != horizontalEnd);
+                const auto topGoesLeft    = topHorizontal->From.Column < verticalEdge->From.Column;
+                const auto bottomGoesLeft = bottomHorizontal->From.Column < verticalEdge->To.Column;
+
+                if ( topGoesLeft != bottomGoesLeft ) {
+                    //Hit an edge which is just a step, one side of that is outside the loop.
+                    return false;
+                } //if ( topGoesLeft != bottomGoesLeft )
+            } //if ( topHorizontal != horizontalEnd )
+
+            bottom = verticalEdge->From.Row - 1;
+            ++verticalEdge;
+            advanceHorizontal(bottom);
+
+            if ( verticalEdge == verticalEnd || verticalEdge->From.Column != column ) {
+                //No edges on this available anymore, only check the vertical ones.
+                return horizontalEdge == horizontalEnd;
+            } //if ( verticalEdge == verticalEnd || verticalEdge->From.Column != column )
+        } //while ( right > left )
+
+        return true;
+    };
+
+    auto isValidRedAndGreen = [&checkLeftToRight, &checkRightToLeft, &checkTopToBottom,
+                               &checkBottomToTop](const Rectangle& rectangle) {
+        if ( rectangle.C1.Column < rectangle.C2.Column ) {
+            return checkLeftToRight(rectangle.C1.Row, rectangle.C1.Column, rectangle.C2.Column, /*topAllowed=*/true,
+                                    /*rowLimit=*/rectangle.C2.Row) &&
+                   checkTopToBottom(rectangle.C1.Column, rectangle.C1.Row, rectangle.C2.Row, /*leftAllowed=*/true,
+                                    /*columnLimit=*/rectangle.C2.Column) &&
+                   checkRightToLeft(rectangle.C2.Row, rectangle.C2.Column, rectangle.C1.Column, /*bottomAllowed=*/true,
+                                    /*rowLimit=*/rectangle.C1.Row) &&
+                   checkBottomToTop(rectangle.C2.Column, rectangle.C2.Row, rectangle.C1.Row, /*rightAllowed=*/true,
+                                    /*columnLimit=*/rectangle.C1.Column);
+        } //if ( rectangle.C1.Column < rectangle.C2.Column )
+
+        return checkRightToLeft(rectangle.C1.Row, rectangle.C1.Column, rectangle.C2.Column, /*bottomAllowed=*/false,
+                                /*rowLimit=*/rectangle.C2.Row) &&
+               checkTopToBottom(rectangle.C1.Column, rectangle.C1.Row, rectangle.C2.Row, /*leftAllowed=*/false,
+                                /*columnLimit=*/rectangle.C2.Column) &&
+               checkLeftToRight(rectangle.C2.Row, rectangle.C2.Column, rectangle.C1.Column, /*topAllowed=*/false,
+                                /*rowLimit=*/rectangle.C1.Row) &&
+               checkBottomToTop(rectangle.C2.Column, rectangle.C2.Row, rectangle.C1.Row, /*rightAllowed=*/false,
+                                /*columnLimit=*/rectangle.C1.Column);
     };
     return std::ranges::find_if(rectangles, isValidRedAndGreen)->Area;
 }
@@ -236,5 +499,5 @@ bool challenge9(const std::vector<std::string_view>& input) {
     const auto area2 = areaOfLargestRedAndGreenRectangle(rectangles, list);
     myPrint(" == Result of Part 2: {:d} ==\n", area2);
 
-    return area1 == 4'769'758'290 && area2 == 20520794;
+    return area1 == 4'769'758'290 && area2 == 1'588'990'708;
 }
