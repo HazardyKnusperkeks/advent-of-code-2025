@@ -213,6 +213,8 @@ CheckOptions:
   value: CamelCase
 - key:   readability-identifier-naming.VariableCase
   value: CamelCase
+- key:   readability-implicit-bool-conversion.AllowIntegerConditions
+  value: true
 - key:   readability-implicit-bool-conversion.AllowPointerConditions
   value: true
 - key:   readability-inconsistent-declaration-parameter-name.Strict
